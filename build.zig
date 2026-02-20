@@ -6,11 +6,12 @@ pub fn build(b: *std.Build) !void {
         .default_target = espressif_targets[0],
     });
     const optimize = b.standardOptimizeOption(.{});
+    const app_source = b.option([]const u8, "app_source", "Path to Zig app entry source file") orelse "main/app.zig";
 
     const obj = b.addObject(.{
         .name = "app_zig",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("main/app.zig"),
+            .root_source_file = b.path(app_source),
             .target = target,
             .optimize = optimize,
             .link_libc = true,

@@ -1,3 +1,53 @@
+menu "Zig Application Selection"
+
+    choice ZIG_APP_ENTRY
+        prompt "Zig app entry source"
+        default ZIG_APP_MAIN
+        help
+            Select which Zig source file is compiled as app_main.
+
+        config ZIG_APP_MAIN
+            bool "main/app.zig (default)"
+
+        config ZIG_APP_EXAMPLE_SMARTLED_RGB
+            bool "main/examples/smartled-rgb.zig"
+
+        config ZIG_APP_EXAMPLE_WIFI_STATION
+            bool "main/examples/wifi-station.zig"
+
+        config ZIG_APP_EXAMPLE_DSP_MATH
+            bool "main/examples/dsp-math.zig"
+
+        config ZIG_APP_EXAMPLE_WAVESHARE_AXP2101
+            bool "main/examples/waveshare-axp2101.zig"
+
+        config ZIG_APP_EXAMPLE_WAVESHARE_QMI8658
+            bool "main/examples/waveshare-qmi8658.zig"
+
+        config ZIG_APP_EXAMPLE_PCF85063_RTC
+            bool "main/examples/pcf85063-rtc.zig"
+
+        config ZIG_APP_EXAMPLE_ES8311_CODEC
+            bool "main/examples/es8311-codec.zig"
+
+        config ZIG_APP_EXAMPLE_ESP_IO_EXPANDER_TCA9554
+            bool "main/examples/esp-io-expander-tca9554.zig"
+
+        config ZIG_APP_EXAMPLE_ESP_LCD_SH8601
+            bool "main/examples/esp-lcd-sh8601.zig"
+
+        config ZIG_APP_EXAMPLE_ESP_LCD_TOUCH_FT5X06
+            bool "main/examples/esp-lcd-touch-ft5x06.zig"
+
+        config ZIG_APP_EXAMPLE_ESP_LCD_TOUCH_CORE
+            bool "main/examples/esp-lcd-touch-core.zig"
+
+        config ZIG_APP_EXAMPLE_LVGL_BASIC
+            bool "main/examples/lvgl-basic.zig"
+    endchoice
+
+endmenu
+
 menu "Example Configuration"
 
     config ESP_WIFI_SSID

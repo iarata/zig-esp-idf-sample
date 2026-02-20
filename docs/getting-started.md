@@ -187,8 +187,18 @@ zig-esp-idf-sample/
 │   ├── idf_component.yml # Component dependencies
 │   ├── Kconfig.projbuild # Project configuration options
 │   └── examples/
-│       ├── smartled-rgb.zig   # LED strip (WS2812B) example
-│       └── wifi-station.zig   # WiFi station example
+│       ├── smartled-rgb.zig            # LED strip (WS2812B) example
+│       ├── wifi-station.zig            # WiFi station example
+│       ├── dsp-math.zig                # ESP-DSP math/FFT example
+│       ├── waveshare-axp2101.zig       # AXP2101 PMU example
+│       ├── waveshare-qmi8658.zig       # QMI8658 IMU example
+│       ├── pcf85063-rtc.zig            # RTC date/time example
+│       ├── es8311-codec.zig            # ES8311 codec control example
+│       ├── esp-io-expander-tca9554.zig # TCA9554 IO expander example
+│       ├── esp-lcd-sh8601.zig          # SH8601 LCD panel example
+│       ├── esp-lcd-touch-ft5x06.zig    # FT5x06 touch controller example
+│       ├── esp-lcd-touch-core.zig      # Generic esp_lcd_touch API example
+│       └── lvgl-basic.zig              # LVGL + esp_lvgl_port example
 │
 ├── imports/              # Zig API wrappers and bindings
 │   ├── idf.zig           # Main ESP-IDF facade module
@@ -598,6 +608,16 @@ ls /dev/tty*
 All examples are in `main/examples/`:
 - `smartled-rgb.zig` - WS2812B LED strip control
 - `wifi-station.zig` - Connect to WiFi network
+- `dsp-math.zig` - FFT and DSP basic math
+- `waveshare-axp2101.zig` - AXP2101 PMU status and power rails
+- `waveshare-qmi8658.zig` - QMI8658 accelerometer/gyroscope readout
+- `pcf85063-rtc.zig` - PCF85063 RTC datetime readout
+- `es8311-codec.zig` - ES8311 audio codec configuration
+- `esp-io-expander-tca9554.zig` - TCA9554 GPIO expander output toggle
+- `esp-lcd-sh8601.zig` - SH8601 LCD panel initialization/draw
+- `esp-lcd-touch-ft5x06.zig` - FT5x06 touch polling
+- `esp-lcd-touch-core.zig` - esp_lcd_touch generic API usage
+- `lvgl-basic.zig` - Minimal LVGL + esp_lvgl_port app skeleton
 
 ### Configuration
 
@@ -606,6 +626,7 @@ All examples are in `main/examples/`:
 idf.py menuconfig
 
 # Key settings to explore:
+# - Zig Application Selection → Zig app entry source
 # - Component config → FreeRTOS → Tick rate (Hz)
 # - Component config → ESP System Settings → Panic handler behavior
 # - Partition Table → Choose partition scheme

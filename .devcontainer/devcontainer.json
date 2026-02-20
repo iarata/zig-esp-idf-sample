@@ -22,7 +22,9 @@
 				"idf.customExtraPaths": "",
 				"idf.pythonBinPath": "/opt/esp/python_env/idf6.0_py3.14_env/bin/python",
 				"idf.toolsPath": "/opt/esp",
-				"idf.gitPath": "/usr/bin/git"
+				"idf.gitPath": "/usr/bin/git",
+				"zig.zls.path": "/opt/zls/bin/zls",
+				"zig.path": "/opt/zig-relsafe-x86_64-linux-musl-baseline/zig"
 			},
 			"extensions": [
 				"espressif.esp-idf-extension",
@@ -36,7 +38,9 @@
 				"idf.customExtraPaths": "",
 				"idf.pythonBinPath": "/opt/esp/python_env/idf6.0_py3.14_env/bin/python",
 				"idf.toolsPath": "/opt/esp",
-				"idf.gitPath": "/usr/bin/git"
+				"idf.gitPath": "/usr/bin/git",
+				"zig.zls.path": "/opt/zls/bin/zls",
+				"zig.path": "/opt/zig-relsafe-x86_64-linux-musl-baseline/zig"
 			},
 			"extensions": [
 				"espressif.esp-idf-extension",

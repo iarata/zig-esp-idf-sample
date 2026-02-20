@@ -407,12 +407,41 @@ else()
     set(ZIG_BUILD_TYPE "ReleaseSafe")
 endif()
 
+set(ZIG_APP_SOURCE "main/app.zig")
+if(CONFIG_ZIG_APP_EXAMPLE_SMARTLED_RGB)
+    set(ZIG_APP_SOURCE "main/examples/smartled-rgb.zig")
+elseif(CONFIG_ZIG_APP_EXAMPLE_WIFI_STATION)
+    set(ZIG_APP_SOURCE "main/examples/wifi-station.zig")
+elseif(CONFIG_ZIG_APP_EXAMPLE_DSP_MATH)
+    set(ZIG_APP_SOURCE "main/examples/dsp-math.zig")
+elseif(CONFIG_ZIG_APP_EXAMPLE_WAVESHARE_AXP2101)
+    set(ZIG_APP_SOURCE "main/examples/waveshare-axp2101.zig")
+elseif(CONFIG_ZIG_APP_EXAMPLE_WAVESHARE_QMI8658)
+    set(ZIG_APP_SOURCE "main/examples/waveshare-qmi8658.zig")
+elseif(CONFIG_ZIG_APP_EXAMPLE_PCF85063_RTC)
+    set(ZIG_APP_SOURCE "main/examples/pcf85063-rtc.zig")
+elseif(CONFIG_ZIG_APP_EXAMPLE_ES8311_CODEC)
+    set(ZIG_APP_SOURCE "main/examples/es8311-codec.zig")
+elseif(CONFIG_ZIG_APP_EXAMPLE_ESP_IO_EXPANDER_TCA9554)
+    set(ZIG_APP_SOURCE "main/examples/esp-io-expander-tca9554.zig")
+elseif(CONFIG_ZIG_APP_EXAMPLE_ESP_LCD_SH8601)
+    set(ZIG_APP_SOURCE "main/examples/esp-lcd-sh8601.zig")
+elseif(CONFIG_ZIG_APP_EXAMPLE_ESP_LCD_TOUCH_FT5X06)
+    set(ZIG_APP_SOURCE "main/examples/esp-lcd-touch-ft5x06.zig")
+elseif(CONFIG_ZIG_APP_EXAMPLE_ESP_LCD_TOUCH_CORE)
+    set(ZIG_APP_SOURCE "main/examples/esp-lcd-touch-core.zig")
+elseif(CONFIG_ZIG_APP_EXAMPLE_LVGL_BASIC)
+    set(ZIG_APP_SOURCE "main/examples/lvgl-basic.zig")
+endif()
+message(STATUS "Zig app source: ${ZIG_APP_SOURCE}")
+
 add_custom_target(zig_build
     ${ZIG_BIN} build
     --build-file ${CMAKE_SOURCE_DIR}/build.zig
     -Doptimize=${ZIG_BUILD_TYPE}
     -Dtarget=${ZIG_TARGET}
     -Dcpu=${TARGET_CPU_MODEL}
+    -Dapp_source=${ZIG_APP_SOURCE}
     -freference-trace
     --cache-dir ${CMAKE_BINARY_DIR}/../.zig-cache
     --prefix ${CMAKE_BINARY_DIR}
