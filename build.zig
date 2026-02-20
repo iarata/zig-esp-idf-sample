@@ -17,7 +17,24 @@ pub fn build(b: *std.Build) !void {
             .link_libc = true,
         }),
     });
-    obj.root_module.addImport("esp_idf", idf_wrapped_modules(b));
+    const idf_module = idf_wrapped_modules(b);
+    obj.root_module.addImport("esp_idf", idf_module);
+
+    const display_touch_module = b.createModule(.{
+        .root_source_file = b.path("main/lib/display_touch.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    display_touch_module.addImport("esp_idf", idf_module);
+    obj.root_module.addImport("display_touch", display_touch_module);
+
+    const ui_module = b.createModule(.{
+        .root_source_file = b.path("main/lib/ui.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    ui_module.addImport("esp_idf", idf_module);
+    obj.root_module.addImport("app_ui", ui_module);
 
     const obj_install = b.addInstallArtifact(obj, .{
         .dest_dir = .{

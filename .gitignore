@@ -10,3 +10,4 @@ include/bindings.h
 !flake.lock
 demos
 build-verify
+build-*

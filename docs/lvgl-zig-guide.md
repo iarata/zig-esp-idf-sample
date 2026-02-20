@@ -59,7 +59,7 @@ The simplest integrated flow is:
 ```zig
 const std = @import("std");
 const idf = @import("esp_idf");
-const display_touch = @import("lib/display_touch.zig");
+const display_touch = @import("display_touch");
 const lvgl = display_touch.lvgl;
 
 pub fn main() callconv(.c) void {

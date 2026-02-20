@@ -1,8 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const idf = @import("esp_idf");
-const display_touch = @import("lib/display_touch.zig");
-const ui = @import("lib/ui.zig");
+const display_touch = @import("display_touch");
+const ui = @import("app_ui");
 
 const lvgl = display_touch.lvgl;
 const log = std.log.scoped(.app);
