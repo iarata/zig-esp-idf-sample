@@ -150,6 +150,23 @@ pub fn idf_wrapped_modules(b: *std.Build) *std.Build.Module {
             },
         },
     });
+    const lvgl = b.addModule("lvgl", .{
+        .root_source_file = b.path(b.pathJoin(&.{
+            src_path,
+            "imports",
+            "lvgl.zig",
+        })),
+        .imports = &.{
+            .{
+                .name = "sys",
+                .module = sys,
+            },
+            .{
+                .name = "error",
+                .module = errors,
+            },
+        },
+    });
     const mqtt = b.addModule("mqtt", .{
         .root_source_file = b.path(b.pathJoin(&.{
             src_path,
@@ -416,6 +433,10 @@ pub fn idf_wrapped_modules(b: *std.Build) *std.Build.Module {
             .{
                 .name = "lwip",
                 .module = lwip,
+            },
+            .{
+                .name = "lvgl",
+                .module = lvgl,
             },
             .{
                 .name = "mqtt",

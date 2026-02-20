@@ -379,26 +379,32 @@ zig_run(
     DEPENDS ${IDF_SYS_C}
 )
 
-# Ensure `translate_c` runs before modifying the file
-add_custom_target(translate_c ALL DEPENDS "${IDF_SYS_ZIG}")
-set_property(TARGET translate_c PROPERTY GENERATED TRUE)
-
 set(IDF_SYS_ZIG "${CMAKE_SOURCE_DIR}/imports/idf-sys.zig")
 message(STATUS "IDF_SYS_ZIG is set to: ${IDF_SYS_ZIG}")
 
+set(PATCH_STAMP "${CMAKE_BINARY_DIR}/patches_applied.done")
+file(GLOB PATCH_DEP_FILES "${CMAKE_SOURCE_DIR}/patches/*.zig")
+
 add_custom_command(
-    TARGET translate_c
-    POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -D TARGET_FILE="${IDF_SYS_ZIG}"
-    -D CONFIG_IDF_TARGET_ESP32H2="${CONFIG_IDF_TARGET_ESP32H2}"
-    -D CONFIG_IDF_TARGET_ESP32H21="${CONFIG_IDF_TARGET_ESP32H21}"
-    -D CONFIG_IDF_TARGET_ESP32H4="${CONFIG_IDF_TARGET_ESP32H4}"
-    -D CONFIG_IDF_TARGET_ESP32P4="${CONFIG_IDF_TARGET_ESP32P4}"
-    -D HAS_LED_STRIP="${HAS_LED_STRIP}"
-    -D HAS_ESP_DSP="${HAS_ESP_DSP}"
+    OUTPUT "${PATCH_STAMP}"
+    COMMAND ${CMAKE_COMMAND}
+    -DTARGET_FILE=${IDF_SYS_ZIG}
+    -DCONFIG_IDF_TARGET_ESP32H2=${CONFIG_IDF_TARGET_ESP32H2}
+    -DCONFIG_IDF_TARGET_ESP32H21=${CONFIG_IDF_TARGET_ESP32H21}
+    -DCONFIG_IDF_TARGET_ESP32H4=${CONFIG_IDF_TARGET_ESP32H4}
+    -DCONFIG_IDF_TARGET_ESP32P4=${CONFIG_IDF_TARGET_ESP32P4}
+    -DHAS_LED_STRIP=${HAS_LED_STRIP}
+    -DHAS_ESP_DSP=${HAS_ESP_DSP}
     -P ${CMAKE_SOURCE_DIR}/cmake/patch.cmake
-    COMMAND ${CMAKE_COMMAND} -E touch "${CMAKE_BINARY_DIR}/patches_applied.done"
+    COMMAND ${CMAKE_COMMAND} -E touch "${PATCH_STAMP}"
+    DEPENDS "${IDF_SYS_ZIG}" "${CMAKE_SOURCE_DIR}/cmake/patch.cmake" ${PATCH_DEP_FILES}
+    COMMENT "Patching Zig bindings"
+    VERBATIM
 )
+
+# Ensure translate-c output exists and patching is done before building Zig app.
+add_custom_target(translate_c ALL DEPENDS "${IDF_SYS_ZIG}" "${PATCH_STAMP}")
+set_property(TARGET translate_c PROPERTY GENERATED TRUE)
 
 
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
@@ -432,6 +438,8 @@ elseif(CONFIG_ZIG_APP_EXAMPLE_ESP_LCD_TOUCH_CORE)
     set(ZIG_APP_SOURCE "main/examples/esp-lcd-touch-core.zig")
 elseif(CONFIG_ZIG_APP_EXAMPLE_LVGL_BASIC)
     set(ZIG_APP_SOURCE "main/examples/lvgl-basic.zig")
+elseif(CONFIG_ZIG_APP_EXAMPLE_LVGL_INTEGRATED_DISPLAY)
+    set(ZIG_APP_SOURCE "main/examples/lvgl-integrated-display.zig")
 endif()
 message(STATUS "Zig app source: ${ZIG_APP_SOURCE}")
 

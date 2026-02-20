@@ -61,16 +61,18 @@ static esp_err_t ensure_i2c_bus(i2c_port_num_t port, gpio_num_t sda, gpio_num_t 
         return (s_i2c_port == port) ? ESP_OK : ESP_ERR_INVALID_STATE;
     }
 
-    esp_err_t err = i2c_master_get_bus_handle(port, &s_i2c_bus);
+    i2c_master_bus_config_t bus_cfg = {};
+    bus_cfg.i2c_port = port;
+    bus_cfg.sda_io_num = sda;
+    bus_cfg.scl_io_num = scl;
+    bus_cfg.clk_source = I2C_CLK_SRC_DEFAULT;
+    bus_cfg.glitch_ignore_cnt = 7;
+    bus_cfg.flags.enable_internal_pullup = 1;
+
+    esp_err_t err = i2c_new_master_bus(&bus_cfg, &s_i2c_bus);
     if (err == ESP_ERR_INVALID_STATE) {
-        i2c_master_bus_config_t bus_cfg = {};
-        bus_cfg.i2c_port = port;
-        bus_cfg.sda_io_num = sda;
-        bus_cfg.scl_io_num = scl;
-        bus_cfg.clk_source = I2C_CLK_SRC_DEFAULT;
-        bus_cfg.glitch_ignore_cnt = 7;
-        bus_cfg.flags.enable_internal_pullup = 1;
-        err = i2c_new_master_bus(&bus_cfg, &s_i2c_bus);
+        // The bus is already created by another component; reuse it.
+        err = i2c_master_get_bus_handle(port, &s_i2c_bus);
     }
     if (err != ESP_OK) {
         return err;

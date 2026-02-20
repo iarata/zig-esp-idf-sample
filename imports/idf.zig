@@ -11,6 +11,7 @@ pub const heap = @import("heap");
 pub const http = @import("http");
 pub const i2c = @import("i2c");
 pub const i2s = @import("i2s");
+pub const lvgl = @import("lvgl");
 pub const led = switch (sys.HAS_ESP_LED_STRIP != 0) {
     true => @import("led"),
     false => @compileError("requires: idf.py add-component espressif/led_strip"),
@@ -68,6 +69,7 @@ comptime {
     _ = http;
     _ = i2c;
     _ = i2s;
+    _ = lvgl;
     _ = log;
     _ = lwip;
     _ = mqtt;

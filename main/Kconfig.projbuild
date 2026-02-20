@@ -44,6 +44,9 @@ menu "Zig Application Selection"
 
         config ZIG_APP_EXAMPLE_LVGL_BASIC
             bool "main/examples/lvgl-basic.zig"
+
+        config ZIG_APP_EXAMPLE_LVGL_INTEGRATED_DISPLAY
+            bool "main/examples/lvgl-integrated-display.zig"
     endchoice
 
 endmenu

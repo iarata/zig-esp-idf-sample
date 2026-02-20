@@ -26,15 +26,13 @@ fn espCheck(err: c.esp_err_t, comptime context: []const u8) void {
 }
 
 fn main() callconv(.c) void {
-    var bus_cfg = std.mem.zeroes(c.i2c_master_bus_config_t);
-    bus_cfg.i2c_port = TOUCH_I2C_PORT;
-    bus_cfg.sda_io_num = TOUCH_SDA;
-    bus_cfg.scl_io_num = TOUCH_SCL;
-    bus_cfg.unnamed_0.clk_source = @as(c.i2c_clock_source_t, @intCast(c.I2C_CLK_SRC_DEFAULT));
-    bus_cfg.glitch_ignore_cnt = 7;
+    log.info("Enabling touch rails via AXP2101 (I2C{d})", .{TOUCH_I2C_PORT});
+    espCheck(c.waveshare_axp2101_init(TOUCH_I2C_PORT, TOUCH_SDA, TOUCH_SCL, TOUCH_FREQ_HZ), "waveshare_axp2101_init");
+    espCheck(c.waveshare_axp2101_apply_touch_amoled_1_8_defaults(), "waveshare_axp2101_apply_touch_amoled_1_8_defaults");
+    idf.rtos.Task.delayMs(20);
 
     var i2c_bus: c.i2c_master_bus_handle_t = null;
-    espCheck(c.i2c_new_master_bus(&bus_cfg, &i2c_bus), "i2c_new_master_bus");
+    espCheck(c.i2c_master_get_bus_handle(TOUCH_I2C_PORT, &i2c_bus), "i2c_master_get_bus_handle");
 
     var tp_io_cfg = std.mem.zeroes(c.esp_lcd_panel_io_i2c_config_t);
     tp_io_cfg.dev_addr = c.ESP_LCD_TOUCH_IO_I2C_FT5x06_ADDRESS;
@@ -43,6 +41,7 @@ fn main() callconv(.c) void {
     tp_io_cfg.dc_bit_offset = 0;
     tp_io_cfg.lcd_cmd_bits = 8;
     tp_io_cfg.lcd_param_bits = 8;
+    tp_io_cfg.flags.disable_control_phase = 1;
 
     var tp_io: c.esp_lcd_panel_io_handle_t = null;
     espCheck(c.esp_lcd_new_panel_io_i2c(i2c_bus, &tp_io_cfg, &tp_io), "esp_lcd_new_panel_io_i2c");

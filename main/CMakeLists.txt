@@ -18,6 +18,7 @@ list(APPEND DEPS
 
 idf_component_register(
     SRCS "placeholder.c"
+         "lvgl_integrated_display_helpers.c"
     INCLUDE_DIRS "."
     REQUIRES ${DEPS}
 )

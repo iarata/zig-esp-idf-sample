@@ -12,6 +12,7 @@
 This project aims to integrate Zig language and toolchain with the [Espressif IoT Development Framework](https://github.com/espressif/esp-idf) for enhanced development capabilities on ESP32 and its variants.
 
 More information about building and using Zig with ESP-IDF can be found in the [documentation](docs/getting-started.md).
+For LVGL usage from Zig (including integrated SH8601 display setup), see [LVGL + Zig Guide](docs/lvgl-zig-guide.md).
 
 ## Prerequisites
 

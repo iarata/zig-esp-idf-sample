@@ -51,6 +51,10 @@ pub fn espError(err: sys.esp_err_t) esp_error!sys.esp_err_t {
 }
 
 pub fn espCheckError(errc: sys.esp_err_t) esp_error!void {
-    if (try espError(errc) == @as(sys.esp_err_t, sys.ESP_OK))
+    if (errc == @as(sys.esp_err_t, sys.ESP_OK))
         return;
+
+    // Preserve detailed mapped errors, but also fail on unmapped non-OK values.
+    _ = try espError(errc);
+    return esp_error.Fail;
 }

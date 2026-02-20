@@ -198,7 +198,8 @@ zig-esp-idf-sample/
 │       ├── esp-lcd-sh8601.zig          # SH8601 LCD panel example
 │       ├── esp-lcd-touch-ft5x06.zig    # FT5x06 touch controller example
 │       ├── esp-lcd-touch-core.zig      # Generic esp_lcd_touch API example
-│       └── lvgl-basic.zig              # LVGL + esp_lvgl_port example
+│       ├── lvgl-basic.zig              # LVGL + esp_lvgl_port example
+│       └── lvgl-integrated-display.zig # LVGL + SH8601 integrated display/touch example
 │
 ├── imports/              # Zig API wrappers and bindings
 │   ├── idf.zig           # Main ESP-IDF facade module
@@ -242,6 +243,8 @@ zig-esp-idf-sample/
 ├── docs/                # Documentation
 │   ├── build-internals.md      # Build system details
 │   ├── build-scheme.png        # Build flow diagram
+│   ├── lvgl-zig-guide.md       # LVGL usage from Zig (API + integrated display)
+│   ├── waveshare-esp32s3-touch-amoled-1.8-integration.md # Board integration notes
 │   └── zig-xtensa.md           # Xtensa toolchain info
 │
 └── flake.nix            # Nix development environment
@@ -601,6 +604,8 @@ ls /dev/tty*
 - **ESP-IDF Docs:** https://docs.espressif.com/projects/esp-idf/
 - **Project Wiki:** 
   - [Build Internals](./build-internals.md)
+  - [LVGL + Zig Guide](./lvgl-zig-guide.md)
+  - [Waveshare AMOLED Integration](./waveshare-esp32s3-touch-amoled-1.8-integration.md)
   - [Xtensa Toolchain](./zig-xtensa.md)
 
 ### Explore Examples
@@ -618,6 +623,7 @@ All examples are in `main/examples/`:
 - `esp-lcd-touch-ft5x06.zig` - FT5x06 touch polling
 - `esp-lcd-touch-core.zig` - esp_lcd_touch generic API usage
 - `lvgl-basic.zig` - Minimal LVGL + esp_lvgl_port app skeleton
+- `lvgl-integrated-display.zig` - LVGL UI on integrated SH8601 AMOLED + FT5x06 touch
 
 ### Configuration
 
@@ -759,6 +765,6 @@ Check your board's pinout:
 
 ## Support
 
-- **Documentation:** [docs/](.)
+- **Documentation:** [Documentation Index](./)
 - **Issues:** https://github.com/kassane/zig-esp-idf-sample/issues
 - **Discussions:** https://github.com/kassane/zig-esp-idf-sample/discussions

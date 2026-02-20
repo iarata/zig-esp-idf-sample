@@ -10,6 +10,66 @@ message(STATUS "Patching Zig bindings: ${TARGET_FILE}")
 # ============================================================================
 file(READ "${TARGET_FILE}" FILE_CONTENT)
 
+function(remove_marker_block CONTENT_VAR BEGIN_MARK END_MARK)
+    set(_content "${${CONTENT_VAR}}")
+    string(LENGTH "${END_MARK}" _end_mark_len)
+    while(TRUE)
+        string(FIND "${_content}" "${BEGIN_MARK}" _begin_idx)
+        if(_begin_idx EQUAL -1)
+            break()
+        endif()
+
+        string(SUBSTRING "${_content}" ${_begin_idx} -1 _tail)
+        string(FIND "${_tail}" "${END_MARK}" _end_rel)
+        if(_end_rel EQUAL -1)
+            message(WARNING "Missing end marker '${END_MARK}' for '${BEGIN_MARK}'")
+            break()
+        endif()
+
+        math(EXPR _after_end_idx "${_begin_idx} + ${_end_rel} + ${_end_mark_len}")
+        string(SUBSTRING "${_content}" 0 ${_begin_idx} _prefix)
+        string(SUBSTRING "${_content}" ${_after_end_idx} -1 _suffix)
+        string(REGEX REPLACE "^\n+" "" _suffix "${_suffix}")
+        set(_content "${_prefix}${_suffix}")
+    endwhile()
+    set(${CONTENT_VAR} "${_content}" PARENT_SCOPE)
+endfunction()
+
+function(remove_pub_const_block CONTENT_VAR SYMBOL)
+    set(_content "${${CONTENT_VAR}}")
+    set(_needle "pub const ${SYMBOL} =")
+
+    while(TRUE)
+        string(FIND "${_content}" "${_needle}" _decl_start)
+        if(_decl_start EQUAL -1)
+            break()
+        endif()
+
+        string(SUBSTRING "${_content}" 0 ${_decl_start} _before_decl)
+        string(FIND "${_before_decl}" "\n" _line_start REVERSE)
+        if(_line_start EQUAL -1)
+            set(_block_start 0)
+        else()
+            math(EXPR _block_start "${_line_start} + 1")
+        endif()
+
+        string(SUBSTRING "${_content}" ${_decl_start} -1 _from_decl)
+        string(FIND "${_from_decl}" "\n};" _block_end_rel)
+        if(_block_end_rel EQUAL -1)
+            message(WARNING "Could not find end of block for symbol '${SYMBOL}'")
+            break()
+        endif()
+
+        math(EXPR _block_end "${_decl_start} + ${_block_end_rel} + 3")
+        string(SUBSTRING "${_content}" 0 ${_block_start} _prefix)
+        string(SUBSTRING "${_content}" ${_block_end} -1 _suffix)
+        string(REGEX REPLACE "^\n+" "" _suffix "${_suffix}")
+        set(_content "${_prefix}${_suffix}")
+    endwhile()
+
+    set(${CONTENT_VAR} "${_content}" PARENT_SCOPE)
+endfunction()
+
 # ============================================================================
 # Determine WiFi support based on target
 # ============================================================================
@@ -37,6 +97,32 @@ endif()
 # Remove problematic definitions
 # ============================================================================
 
+# Remove previously appended custom patch blocks so this script is idempotent.
+remove_marker_block(FILE_CONTENT "// BEGIN_PATCH:i2c_and_touch_configs" "// END_PATCH:i2c_and_touch_configs")
+remove_marker_block(FILE_CONTENT "// BEGIN_PATCH:esp_lcd_panel_configs" "// END_PATCH:esp_lcd_panel_configs")
+foreach(PATCHED_SYMBOL IN ITEMS
+    i2c_master_bus_config_flags_t
+    i2c_master_bus_config_t
+    i2c_device_config_flags_t
+    i2c_device_config_t
+    esp_lcd_touch_levels_t
+    esp_lcd_touch_flags_t
+    esp_lcd_touch_config_t
+    esp_lcd_panel_dev_flags_t
+    esp_lcd_panel_dev_config_t
+    sh8601_vendor_flags_t
+    sh8601_vendor_config_t
+    esp_lcd_panel_io_i80_dc_levels_t
+    esp_lcd_panel_io_i80_flags_t
+    esp_lcd_panel_io_i80_config_t
+    esp_lcd_panel_io_i2c_flags_t
+    esp_lcd_panel_io_i2c_config_t
+    esp_lcd_panel_io_spi_flags_t
+    esp_lcd_panel_io_spi_config_t
+)
+    remove_pub_const_block(FILE_CONTENT "${PATCHED_SYMBOL}")
+endforeach()
+
 # WiFi patches (only for WiFi-enabled targets)
 if(WIFI_SUPPORTED)
     string(REGEX REPLACE "pub const wifi_sta_config_t[^;]*;" "" FILE_CONTENT "${FILE_CONTENT}")
@@ -45,6 +131,10 @@ endif()
 
 # Remove portTICK_PERIOD_MS (will be replaced with custom version)
 string(REGEX REPLACE "pub const portTICK_PERIOD_MS[^;]*;" "" FILE_CONTENT "${FILE_CONTENT}")
+
+# Remove I2C and touch config structs that contain demoted opaque bitfields
+# and re-add them as explicit packed flag fields via patch snippets.
+string(REGEX REPLACE "[^\n]*esp_driver_i2c/include/driver/i2c_master.h:53:18: warning: struct demoted to opaque type - has bitfield\n" "" FILE_CONTENT "${FILE_CONTENT}")
 
 # ESP32-P4 specific: Remove xPortCanYield function
 if(CONFIG_IDF_TARGET_ESP32P4)
@@ -64,11 +154,13 @@ endif()
 # ============================================================================
 # Append custom patch files
 # ============================================================================
-set(PATCH_DIR "${CMAKE_SOURCE_DIR}/../../../patches")
+get_filename_component(PATCH_DIR "${CMAKE_CURRENT_LIST_DIR}/../patches" ABSOLUTE)
 
 # Define patches to apply
 set(PATCH_FILES
     "porttick_period_ms.zig"
+    "i2c_and_touch_configs.zig"
+    "esp_lcd_panel_configs.zig"
 )
 
 # Add target-specific patches
