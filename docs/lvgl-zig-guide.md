@@ -9,8 +9,9 @@ The Zig module `idf.lvgl` wraps the most common LVGL/`esp_lvgl_port` calls so ex
 Implemented in:
 
 - `imports/lvgl.zig`
-- `main/lvgl_integrated_display_helpers.c`
-- `main/examples/lvgl-integrated-display.zig` (full Zig SH8601 + FT5x06 bring-up path)
+- `main/lib/display_touch.zig` (shared Zig SH8601 + FT5x06 bring-up library)
+- `main/lib/ui.zig` (minimal reusable UI component layer)
+- `main/examples/lvgl-integrated-display.zig` (uses shared Zig library)
 
 You can use it in Zig with:
 
@@ -33,7 +34,7 @@ Then open:
 - choose `main/examples/lvgl-basic.zig` or `main/examples/lvgl-integrated-display.zig`
 
 The integrated display option (`lvgl-integrated-display.zig`) is the board-ready path for the SH8601 AMOLED setup.
-It now demonstrates a fully Zig-driven display/touch init flow (no C helper calls from the example itself).
+It now demonstrates a fully Zig-driven display/touch init flow through `main/lib/display_touch.zig`.
 
 ## 3. Build and flash
 
@@ -58,18 +59,20 @@ The simplest integrated flow is:
 ```zig
 const std = @import("std");
 const idf = @import("esp_idf");
-const lvgl = idf.lvgl;
+const display_touch = @import("lib/display_touch.zig");
+const lvgl = display_touch.lvgl;
 
 pub fn main() callconv(.c) void {
-    _ = lvgl.initPortDefault() catch @panic("lvgl.initPortDefault");
-
-    const integrated = lvgl.initIntegratedDisplay() catch @panic("lvgl.initIntegratedDisplay");
+    const integrated = display_touch.initDefault() catch @panic("display_touch.initDefault");
     _ = integrated;
 
     if (!lvgl.lock(0)) @panic("lvgl.lock");
     defer lvgl.unlock();
 
-    _ = lvgl.createCenteredLabel("Zig + LVGL");
+    const screen = lvgl.activeScreen() orelse return;
+    const label = lvgl.createLabel(screen) orelse return;
+    lvgl.setLabelText(label, "Zig + LVGL");
+    lvgl.center(label);
 
     while (true) {
         idf.rtos.Task.delayMs(1000);
@@ -77,7 +80,7 @@ pub fn main() callconv(.c) void {
 }
 ```
 
-`initIntegratedDisplay()` initializes the SH8601 panel and tries to initialize FT5x06 touch. Touch is optional; display can continue even if touch init fails.
+`display_touch.initDefault()` initializes the LVGL port, SH8601 panel, and FT5x06 touch (optional by default).
 
 ## 5. `idf.lvgl` API overview
 
@@ -168,6 +171,7 @@ If your specific hardware revision needs different orientation, adjust these in:
 ## 10. File map
 
 - Zig wrapper module: `imports/lvgl.zig`
-- Integrated display helper C: `main/lvgl_integrated_display_helpers.c`
+- Shared display/touch library: `main/lib/display_touch.zig`
+- Shared UI component layer: `main/lib/ui.zig`
 - Integrated example app (Zig-only bring-up): `main/examples/lvgl-integrated-display.zig`
 - Basic LVGL example app: `main/examples/lvgl-basic.zig`
