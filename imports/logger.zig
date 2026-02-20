@@ -65,7 +65,7 @@ pub fn ESP_LOG(
     else
         std.fmt.allocPrint(allocator, fmt, args) catch return;
 
-    sys.esp_log_write(level, tag, "%s", buffer.ptr);
+    sys.esp_log_write(level, tag, "%.*s", @as(c_int, @intCast(buffer.len)), buffer.ptr);
 }
 
 // ---------------------------------------------------------------------------

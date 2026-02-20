@@ -1,0 +1,6 @@
+name: espressif/es8311
+description: Local override of espressif/es8311 with ESP-IDF v6 GPIO dependency fix
+version: 1.0.0
+dependencies:
+  idf:
+    version: '>=4.4'

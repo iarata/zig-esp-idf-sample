@@ -57,8 +57,12 @@ fn main() callconv(.c) void {
         log.err("Error: {s}", .{@errorName(err)});
     };
 
-    if (builtin.mode == .Debug)
-        heap.dump();
+    if (builtin.mode == .Debug) {
+        log.debug(
+            "[Memory Debug] largest_free_block={d}, internal_free={d}",
+            .{ heap.largestFreeBlock(), heap.internalFreeSize() },
+        );
+    }
 
     // FreeRTOS Tasks — Task.create returns !Handle; on failure panic with a clear message.
     _ = idf.rtos.Task.create(fooTask, "foo", 1024 * 3, null, 1) catch @panic("Task foo not created");

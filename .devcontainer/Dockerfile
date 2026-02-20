@@ -13,6 +13,7 @@ RUN apt-get update \
   libglib2.0-0 \
   libnuma1 \
   libpixman-1-0 \
+  socat \
   && rm -rf /var/lib/apt/lists/*
 
 # QEMU

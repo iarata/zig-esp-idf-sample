@@ -6,10 +6,14 @@
 			"DOCKER_TAG": "release-v6.0"
 		}
 	},
-	"mounts": [
-		// Unfortunately this mount only works for linux users:
-		"source=/dev/bus/usb,target=/dev/bus/usb,type=bind,consistency=cached"
-	],
+	// USB serial forwarding (macOS):
+	// 1. Run on macOS host:  socat TCP-LISTEN:3333,reuseaddr,fork FILE:/dev/tty.usbmodem1101,b115200,raw,echo=0
+	// 2. The container will auto-connect via postStartCommand below.
+	// For Linux, uncomment the mount instead:
+	// "mounts": [
+	// 	"source=/dev/bus/usb,target=/dev/bus/usb,type=bind,consistency=cached"
+	// ],
+	"postStartCommand": "socat PTY,link=/dev/ttyUSB0,raw,echo=0,unlink-close=0 TCP:host.docker.internal:3333 &",
 	"customizations": {
 		"vscode": {
 			"settings": {

@@ -267,6 +267,7 @@ set(INCLUDE_DIRS
     "${IDF_PATH}/components/ieee802154/include"
     "${IDF_PATH}/components/openthread/include"
     "${IDF_PATH}/components/esp_rom/include"
+    "${IDF_PATH}/components/esp_lcd/include"
     "${IDF_PATH}/components/esp_wifi/include"
     "${IDF_PATH}/components/esp_event/include"
     "${IDF_PATH}/components/lwip/include"
@@ -288,6 +289,7 @@ set(INCLUDE_DIRS
     "${IDF_PATH}/components/driver/twai/include"
     "${IDF_PATH}/components/spi_flash/include"
     "${IDF_PATH}/components/esp_usb_cdc_rom_console/include"
+    "${CMAKE_BINARY_DIR}/config"
     "${CMAKE_SOURCE_DIR}/build/config"
 )
 # Toolchain system includes (separate from regular includes)

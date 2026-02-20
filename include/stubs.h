@@ -91,5 +91,32 @@ typedef unsigned int wint_t;
 #if HAS_ESP_DSP
 #include "esp_dsp.h"
 #endif
+#if HAS_ES8311
+#include "es8311.h"
+#endif
+#if HAS_ESP_IO_EXPANDER
+#include "esp_io_expander.h"
+#endif
+#if HAS_ESP_IO_EXPANDER_TCA9554
+#include "esp_io_expander_tca9554.h"
+#endif
+#if HAS_WAVESHARE_AXP2101
+#include "waveshare_axp2101.h"
+#endif
+#if HAS_WAVESHARE_QMI8658
+#include "waveshare_qmi8658.h"
+#endif
+#if HAS_PCF85063
+#include "pcf85063.h"
+#endif
+#if HAS_ESP_LCD_SH8601
+#include "esp_lcd_sh8601.h"
+#endif
+#if HAS_ESP_LCD_TOUCH
+#include "esp_lcd_touch.h"
+#endif
+#if HAS_ESP_LCD_TOUCH_FT5X06
+#include "esp_lcd_touch_ft5x06.h"
+#endif
 
 #endif // STUBS_H
