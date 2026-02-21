@@ -1,7 +1,4 @@
 {
     "zig.zls.path": "/opt/zls/bin/zls",
-    "zig.path": "/opt/zig-relsafe-x86_64-linux-musl-baseline/zig",
-    "zig.buildOnSaveArgs": [
-        "-Dapp_source=main/examples/lvgl-integrated-display.zig"
-    ]
+    "zig.path": "/opt/zig-relsafe-x86_64-linux-musl-baseline/zig"
 }

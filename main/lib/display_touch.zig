@@ -113,8 +113,13 @@ pub const TouchTransform = struct {
 
 pub const TouchConfig = struct {
     freq_hz: u32 = 400_000,
-    init_retries: u32 = 5,
-    retry_delay_ms: u32 = 80,
+    fallback_freq_hz: u32 = 100_000,
+    use_fallback_freq: bool = true,
+    init_retries: u32 = 8,
+    retry_delay_ms: u32 = 100,
+    startup_delay_ms: u32 = 120,
+    probe_before_init: bool = true,
+    probe_timeout_ms: i32 = 20,
     required: bool = false,
     transform: TouchTransform = .{},
 };
@@ -152,6 +157,9 @@ const sh8601_init_cmds = [_]c.sh8601_lcd_init_cmd_t{
     .{ .cmd = 0x29, .data = null, .data_bytes = 0, .delay_ms = 10 },
     .{ .cmd = 0x51, .data = @ptrCast(&sh8601_cmd_51_ff[0]), .data_bytes = sh8601_cmd_51_ff.len, .delay_ms = 0 },
 };
+
+// LVGL v9 color format constant for RGB565.
+const lv_color_format_rgb565: c_int = 0x12;
 
 // SH8601 requires even start/end boundaries for clean partial updates.
 fn rounderCb(area: [*c]LvArea) callconv(.c) void {
@@ -255,7 +263,7 @@ pub fn init(options: InitOptions) !lvgl.IntegratedDisplay {
             .mirror_y = options.display.rotation.mirror_y,
         },
         .rounder_cb = if (options.display.round_to_even) rounderCb else null,
-        .color_format = 0, // LV_COLOR_FORMAT_RGB565 default
+        .color_format = lv_color_format_rgb565,
         .flags = .{
             .buff_dma = asBit(options.display.flags.buff_dma),
             .buff_spiram = asBit(options.display.flags.buff_spiram),
@@ -279,9 +287,12 @@ pub fn init(options: InitOptions) !lvgl.IntegratedDisplay {
         };
     }
 
+    if (options.touch.startup_delay_ms > 0) {
+        idf.rtos.Task.delayMs(options.touch.startup_delay_ms);
+    }
+
     var touch_io_cfg = std.mem.zeroes(c.esp_lcd_panel_io_i2c_config_t);
     touch_io_cfg.dev_addr = @as(u32, @intCast(c.ESP_LCD_TOUCH_IO_I2C_FT5x06_ADDRESS));
-    touch_io_cfg.scl_speed_hz = options.touch.freq_hz;
     touch_io_cfg.control_phase_bytes = 1;
     touch_io_cfg.dc_bit_offset = 0;
     touch_io_cfg.lcd_cmd_bits = 8;
@@ -303,12 +314,44 @@ pub fn init(options: InitOptions) !lvgl.IntegratedDisplay {
         .mirror_y = asBit(options.touch.transform.mirror_y),
     };
 
+    var freq_candidates = [_]u32{ options.touch.freq_hz, options.touch.fallback_freq_hz };
+    const freq_count: usize = if (options.touch.use_fallback_freq and
+        options.touch.fallback_freq_hz != 0 and
+        options.touch.fallback_freq_hz != options.touch.freq_hz)
+        2
+    else
+        1;
+
     var attempt: u32 = 1;
     while (attempt <= options.touch.init_retries) : (attempt += 1) {
+        const freq = freq_candidates[(attempt - 1) % freq_count];
+        touch_io_cfg.scl_speed_hz = freq;
+
+        if (options.touch.probe_before_init) {
+            const probe_err = c.i2c_master_probe(
+                i2c_bus,
+                @as(u16, @intCast(touch_io_cfg.dev_addr)),
+                @as(c_int, @intCast(options.touch.probe_timeout_ms)),
+            );
+            if (probe_err != c.ESP_OK) {
+                log.warn(
+                    "Touch probe attempt {d}/{d} failed at {d} Hz (err={d})",
+                    .{ attempt, options.touch.init_retries, freq, probe_err },
+                );
+                _ = c.i2c_master_bus_reset(i2c_bus);
+                idf.rtos.Task.delayMs(options.touch.retry_delay_ms);
+                continue;
+            }
+        }
+
         var touch_io: c.esp_lcd_panel_io_handle_t = null;
         const io_err = c.esp_lcd_new_panel_io_i2c(i2c_bus, &touch_io_cfg, &touch_io);
         if (io_err != c.ESP_OK) {
-            log.warn("Touch IO init attempt {d}/{d} failed (err={d})", .{ attempt, options.touch.init_retries, io_err });
+            log.warn(
+                "Touch IO init attempt {d}/{d} failed at {d} Hz (err={d})",
+                .{ attempt, options.touch.init_retries, freq, io_err },
+            );
+            _ = c.i2c_master_bus_reset(i2c_bus);
             idf.rtos.Task.delayMs(options.touch.retry_delay_ms);
             continue;
         }
@@ -316,8 +359,12 @@ pub fn init(options: InitOptions) !lvgl.IntegratedDisplay {
         var touch_handle: c.esp_lcd_touch_handle_t = null;
         const touch_err = c.esp_lcd_touch_new_i2c_ft5x06(touch_io, &touch_cfg, &touch_handle);
         if (touch_err != c.ESP_OK) {
-            log.warn("Touch controller init attempt {d}/{d} failed (err={d})", .{ attempt, options.touch.init_retries, touch_err });
+            log.warn(
+                "Touch controller init attempt {d}/{d} failed at {d} Hz (err={d})",
+                .{ attempt, options.touch.init_retries, freq, touch_err },
+            );
             _ = c.esp_lcd_panel_io_del(touch_io);
+            _ = c.i2c_master_bus_reset(i2c_bus);
             idf.rtos.Task.delayMs(options.touch.retry_delay_ms);
             continue;
         }
@@ -342,7 +389,7 @@ pub fn init(options: InitOptions) !lvgl.IntegratedDisplay {
             };
         }
 
-        log.info("Touch initialized on attempt {d}/{d}", .{ attempt, options.touch.init_retries });
+        log.info("Touch initialized on attempt {d}/{d} at {d} Hz", .{ attempt, options.touch.init_retries, freq });
         return .{
             .display = disp,
             .touch = touch_indev,
