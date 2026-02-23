@@ -53,6 +53,8 @@ typedef struct {
     } flags;
 } sh8601_panel_t;
 
+// Build one driver object that adapts SH8601 specifics to the generic esp_lcd
+// panel interface used by higher layers.
 esp_err_t esp_lcd_new_panel_sh8601(const esp_lcd_panel_io_handle_t io, const esp_lcd_panel_dev_config_t *panel_dev_config, esp_lcd_panel_handle_t *ret_panel)
 {
     ESP_RETURN_ON_FALSE(io && panel_dev_config && ret_panel, ESP_ERR_INVALID_ARG, TAG, "invalid argument");
@@ -139,6 +141,8 @@ err:
     return ret;
 }
 
+// SH8601 QSPI mode uses opcode-embedded commands; hide that framing detail
+// behind a single helper so call-sites stay command-centric.
 static esp_err_t tx_param(sh8601_panel_t *sh8601, esp_lcd_panel_io_handle_t io, int lcd_cmd, const void *param, size_t param_size)
 {
     if (sh8601->flags.use_qspi_interface) {
@@ -149,6 +153,7 @@ static esp_err_t tx_param(sh8601_panel_t *sh8601, esp_lcd_panel_io_handle_t io, 
     return esp_lcd_panel_io_tx_param(io, lcd_cmd, param, param_size);
 }
 
+// Color writes use a different opcode than parameter writes in QSPI mode.
 static esp_err_t tx_color(sh8601_panel_t *sh8601, esp_lcd_panel_io_handle_t io, int lcd_cmd, const void *param, size_t param_size)
 {
     if (sh8601->flags.use_qspi_interface) {
@@ -159,6 +164,7 @@ static esp_err_t tx_color(sh8601_panel_t *sh8601, esp_lcd_panel_io_handle_t io, 
     return esp_lcd_panel_io_tx_color(io, lcd_cmd, param, param_size);
 }
 
+// Explicit GPIO reset prevents stale pin configuration if panel is recreated.
 static esp_err_t panel_sh8601_del(esp_lcd_panel_t *panel)
 {
     sh8601_panel_t *sh8601 = __containerof(panel, sh8601_panel_t, base);
@@ -171,6 +177,7 @@ static esp_err_t panel_sh8601_del(esp_lcd_panel_t *panel)
     return ESP_OK;
 }
 
+// Some boards omit reset GPIO; support both hardware and software reset paths.
 static esp_err_t panel_sh8601_reset(esp_lcd_panel_t *panel)
 {
     sh8601_panel_t *sh8601 = __containerof(panel, sh8601_panel_t, base);
@@ -197,6 +204,8 @@ static const sh8601_lcd_init_cmd_t vendor_specific_init_default[] = {
     {0x53, (uint8_t []){0x20}, 1, 25},
 };
 
+// Apply core format settings first, then vendor table so board-specific command
+// sequences can intentionally override defaults.
 static esp_err_t panel_sh8601_init(esp_lcd_panel_t *panel)
 {
     sh8601_panel_t *sh8601 = __containerof(panel, sh8601_panel_t, base);
@@ -251,6 +260,8 @@ static esp_err_t panel_sh8601_init(esp_lcd_panel_t *panel)
     return ESP_OK;
 }
 
+// Windowed writes avoid full-frame transfers and are required by esp_lcd flush
+// semantics for partial redraw.
 static esp_err_t panel_sh8601_draw_bitmap(esp_lcd_panel_t *panel, int x_start, int y_start, int x_end, int y_end, const void *color_data)
 {
     sh8601_panel_t *sh8601 = __containerof(panel, sh8601_panel_t, base);
@@ -282,6 +293,7 @@ static esp_err_t panel_sh8601_draw_bitmap(esp_lcd_panel_t *panel, int x_start, i
     return ESP_OK;
 }
 
+// Exposes inversion through esp_lcd standard hook.
 static esp_err_t panel_sh8601_invert_color(esp_lcd_panel_t *panel, bool invert_color_data)
 {
     sh8601_panel_t *sh8601 = __containerof(panel, sh8601_panel_t, base);
@@ -296,6 +308,8 @@ static esp_err_t panel_sh8601_invert_color(esp_lcd_panel_t *panel, bool invert_c
     return ESP_OK;
 }
 
+// Only mirror-X is supported by this controller variant; keep API compatible by
+// returning NOT_SUPPORTED for mirror-Y while still applying mirror-X.
 static esp_err_t panel_sh8601_mirror(esp_lcd_panel_t *panel, bool mirror_x, bool mirror_y)
 {
     sh8601_panel_t *sh8601 = __containerof(panel, sh8601_panel_t, base);
@@ -317,12 +331,14 @@ static esp_err_t panel_sh8601_mirror(esp_lcd_panel_t *panel, bool mirror_x, bool
     return ret;
 }
 
+// Explicit failure is clearer than silently accepting unsupported transforms.
 static esp_err_t panel_sh8601_swap_xy(esp_lcd_panel_t *panel, bool swap_axes)
 {
     ESP_LOGE(TAG, "swap_xy is not supported by this panel");
     return ESP_ERR_NOT_SUPPORTED;
 }
 
+// Gaps are applied in software to support modules with shifted visible areas.
 static esp_err_t panel_sh8601_set_gap(esp_lcd_panel_t *panel, int x_gap, int y_gap)
 {
     sh8601_panel_t *sh8601 = __containerof(panel, sh8601_panel_t, base);
@@ -331,6 +347,7 @@ static esp_err_t panel_sh8601_set_gap(esp_lcd_panel_t *panel, int x_gap, int y_g
     return ESP_OK;
 }
 
+// Maps esp_lcd display power hook onto SH8601 DISPON/DISPOFF commands.
 static esp_err_t panel_sh8601_disp_on_off(esp_lcd_panel_t *panel, bool on_off)
 {
     sh8601_panel_t *sh8601 = __containerof(panel, sh8601_panel_t, base);

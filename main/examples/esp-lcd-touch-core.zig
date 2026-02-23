@@ -1,3 +1,31 @@
+//! # Generic Touch Core API Example (`esp-lcd-touch-core.zig`)
+//!
+//! **What:** Demonstrates the controller-agnostic `esp_lcd_touch` core API.
+//! Creates an FT5x06 driver underneath but reads touch points exclusively
+//! through the generic `esp_lcd_touch_get_data` / `esp_lcd_touch_set_*`
+//! abstractions.
+//!
+//! **What it does:**
+//!   1. Powers the board via AXP2101.
+//!   2. Opens an I²C panel-IO channel to the FT5x06 controller.
+//!   3. Creates the touch driver with resolution 368×448.
+//!   4. Configures swap/mirror via the core API, then polls
+//!      `esp_lcd_touch_read_data` + `esp_lcd_touch_get_data` for point data.
+//!
+//! **How:** Build and flash with:
+//! ```sh
+//! zig build -Dapp_source=main/examples/esp-lcd-touch-core.zig
+//! idf.py flash monitor
+//! ```
+//!
+//! **When to use:** To prove that your touch integration can be swapped to a
+//! different controller driver (GT911, CST816S, etc.) without changing the
+//! polling code.
+//!
+//! **What it takes:**
+//!   - FT5x06 on I²C₀ (SDA=15, SCL=14), INT=GPIO 21.
+//!   - AXP2101 for rail enable.
+
 const std = @import("std");
 const builtin = @import("builtin");
 const idf = @import("esp_idf");
@@ -18,6 +46,8 @@ comptime {
     @export(&main, .{ .name = "app_main" });
 }
 
+/// In bring-up examples we fail fast on any ESP-IDF error so hardware is not
+/// left in a half-configured state that hides the root cause.
 fn espCheck(err: c.esp_err_t, comptime context: []const u8) void {
     idf.err.espCheckError(err) catch |check_err| {
         log.err("{s} failed: {s}", .{ context, @errorName(check_err) });
@@ -25,6 +55,8 @@ fn espCheck(err: c.esp_err_t, comptime context: []const u8) void {
     };
 }
 
+/// Uses the controller-agnostic core API to prove higher-level touch code can
+/// stay unchanged even if the underlying controller driver changes.
 fn main() callconv(.c) void {
     log.info("Enabling touch rails via AXP2101 (I2C{d})", .{TOUCH_I2C_PORT});
     espCheck(c.waveshare_axp2101_init(TOUCH_I2C_PORT, TOUCH_SDA, TOUCH_SCL, TOUCH_FREQ_HZ), "waveshare_axp2101_init");

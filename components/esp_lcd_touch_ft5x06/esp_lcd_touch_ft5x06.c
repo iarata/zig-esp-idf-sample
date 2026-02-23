@@ -95,6 +95,8 @@ static esp_err_t touch_ft5x06_reset(esp_lcd_touch_handle_t tp);
 * Public API functions
 *******************************************************************************/
 
+// Performs all one-time controller wiring (callbacks, GPIO, reset, thresholds)
+// so callers can treat `out_touch` as immediately usable.
 esp_err_t esp_lcd_touch_new_i2c_ft5x06(const esp_lcd_panel_io_handle_t io, const esp_lcd_touch_config_t *config, esp_lcd_touch_handle_t *out_touch)
 {
     esp_err_t ret = ESP_OK;
@@ -167,6 +169,8 @@ err:
     return ret;
 }
 
+// Reads raw FT5x06 packet layout once and stores normalized coordinates in the
+// shared core buffer expected by esp_lcd_touch helpers.
 static esp_err_t esp_lcd_touch_ft5x06_read_data(esp_lcd_touch_handle_t tp)
 {
     esp_err_t err;
@@ -205,6 +209,8 @@ static esp_err_t esp_lcd_touch_ft5x06_read_data(esp_lcd_touch_handle_t tp)
     return ESP_OK;
 }
 
+// Read-once semantics prevent consumers from accidentally processing the same
+// sample multiple times.
 static bool esp_lcd_touch_ft5x06_get_xy(esp_lcd_touch_handle_t tp, uint16_t *x, uint16_t *y, uint16_t *strength, uint8_t *point_num, uint8_t max_point_num)
 {
     assert(tp != NULL);
@@ -235,6 +241,7 @@ static bool esp_lcd_touch_ft5x06_get_xy(esp_lcd_touch_handle_t tp, uint16_t *x, 
     return (*point_num > 0);
 }
 
+// Restores GPIO state so re-initialization or other drivers can reuse pins.
 static esp_err_t esp_lcd_touch_ft5x06_del(esp_lcd_touch_handle_t tp)
 {
     assert(tp != NULL);
@@ -261,6 +268,7 @@ static esp_err_t esp_lcd_touch_ft5x06_del(esp_lcd_touch_handle_t tp)
 * Private API function
 *******************************************************************************/
 
+// Applies stable interaction thresholds known to work for this board profile.
 static esp_err_t touch_ft5x06_init(esp_lcd_touch_handle_t tp)
 {
     esp_err_t ret = ESP_OK;
@@ -296,6 +304,7 @@ static esp_err_t touch_ft5x06_init(esp_lcd_touch_handle_t tp)
 }
 
 /* Reset controller */
+// Hardware reset is optional; some boards strap reset and rely on power-up.
 static esp_err_t touch_ft5x06_reset(esp_lcd_touch_handle_t tp)
 {
     assert(tp != NULL);
@@ -310,6 +319,7 @@ static esp_err_t touch_ft5x06_reset(esp_lcd_touch_handle_t tp)
     return ESP_OK;
 }
 
+// Keep transport details in one place for easier future bus migration.
 static esp_err_t touch_ft5x06_i2c_write(esp_lcd_touch_handle_t tp, uint8_t reg, uint8_t data)
 {
     assert(tp != NULL);
@@ -320,6 +330,7 @@ static esp_err_t touch_ft5x06_i2c_write(esp_lcd_touch_handle_t tp, uint8_t reg, 
     // *INDENT-ON*
 }
 
+// Shared read primitive for probe, sample fetch, and config verification.
 static esp_err_t touch_ft5x06_i2c_read(esp_lcd_touch_handle_t tp, uint8_t reg, uint8_t *data, uint8_t len)
 {
     assert(tp != NULL);

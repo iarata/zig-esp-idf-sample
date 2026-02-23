@@ -1,3 +1,58 @@
+//! # ESP-DSP Wrapper (`dsp`)
+//!
+//! **What:** High-level Zig wrapper for the Espressif ESP-DSP library,
+//! providing complex number types, FIR/IIR filters, FFT (radix-2 and
+//! radix-4), matrix math, window functions, signal generation, and more.
+//!
+//! **Prerequisite:** `idf.py add-dependency espressif/esp-dsp`
+//!
+//! **What it does (by namespace):**
+//!   - **Complex16 / Complex32** — complex number types with conversions and
+//!     magnitude/phase helpers.
+//!   - **Image2D** — 2D data descriptor for image/matrix operations.
+//!   - **FirF32 / FirS16** — FIR filter init, process, and deinit (including
+//!     decimation variants).  Uses hardware acceleration on Xtensa.
+//!   - **BiquadFilter** — IIR biquad filter with coefficient generators for
+//!     lowpass, highpass, bandpass, notch, allpass, peaking EQ, shelving.
+//!   - **FFT** — radix-2 and radix-4 FFT init, execute, bit-reverse, and
+//!     complex-to-real conversion.
+//!   - **Math** — element-wise vector add/sub/mul, scalar add/mul, sqrt, dot
+//!     product (f32 and s16).
+//!   - **Matrix** — matrix multiply, add, sub, scalar mul, optimised 3×3 and
+//!     4×4 variants.
+//!   - **Window** — Hann, Blackman, Blackman-Harris, Blackman-Nuttall,
+//!     Nuttall, flat-top.
+//!   - **Signal** — convolution, cross-correlation, tone generation, SNR,
+//!     SFDR.
+//!   - **DCT** — forward and inverse Discrete Cosine Transform.
+//!   - **Utils** — power-of-two checks, debug signal/spectrum viewers.
+//!
+//! **How:** Each function wraps the matching `sys.dsps_*` / `sys.dspm_*` C
+//! function, adding Zig slice safety (length checks) and `espCheckError`
+//! error conversion.
+//!
+//! **When to use:** Audio processing, IMU sensor fusion, spectral analysis,
+//! image processing on ESP32.
+//!
+//! **What it takes:** Slices of `f32` or `i16`, plus filter/FFT configuration.
+//!
+//! **Example:**
+//! ```zig
+//! const dsp = idf.dsp;
+//!
+//! // Generate a 1 kHz tone at 44100 Hz sample rate
+//! var signal: [1024]f32 = undefined;
+//! try dsp.Signal.generateToneF32(&signal, 1.0, 1000.0 / 44100.0, 0);
+//!
+//! // Apply a lowpass biquad filter
+//! var lpf = try dsp.BiquadFilter.init(.lowpass, 0.1, 0.707, 0);
+//! var output: [1024]f32 = undefined;
+//! try lpf.process(&signal, &output);
+//!
+//! // Dot product
+//! const dot = try dsp.Math.dotProductF32(&a, &b);
+//! ```
+
 // ESP-DSP (Digital Signal Processing) Library Wrapper
 // requires: idf.py add-dependency espressif/esp-dsp
 const sys = @import("sys");
@@ -56,6 +111,7 @@ pub const Complex32 = extern struct {
 // Image/2D data structure
 // ═══════════════════════════════════════════════════════════════════════════
 
+/// 2-D data descriptor for image/matrix DSP operations.
 pub const Image2D = extern struct {
     data: ?*anyopaque = null,
     step_x: c_int = 0,
@@ -132,6 +188,7 @@ pub const FirS16 = struct {
 // FFT operations
 // ═══════════════════════════════════════════════════════════════════════════
 
+/// Radix-2 and radix-4 FFT operations (in-place, interleaved complex).
 pub const FFT = struct {
     /// Initialize FFT with radix-2 (power of 2 sizes)
     pub fn initRadix2F32(table_buffer: []f32, table_size: u32) !void {
@@ -177,6 +234,7 @@ pub const FFT = struct {
 // Basic math operations
 // ═══════════════════════════════════════════════════════════════════════════
 
+/// Element-wise vector arithmetic, dot products, and scalar operations.
 pub const Math = struct {
     /// Vector addition: output = input1 + input2
     pub fn addF32(input1: []const f32, input2: []const f32, output: []f32) !void {
@@ -249,6 +307,7 @@ pub const Math = struct {
 // Matrix operations
 // ═══════════════════════════════════════════════════════════════════════════
 
+/// Matrix arithmetic (multiply, add, sub, scalar mul, optimised 3×3 / 4×4).
 pub const Matrix = struct {
     /// Matrix multiplication: C = A * B
     /// A: m x k, B: k x n, C: m x n
@@ -288,27 +347,34 @@ pub const Matrix = struct {
 // Window functions
 // ═══════════════════════════════════════════════════════════════════════════
 
+/// Standard window functions for spectral analysis.
 pub const Window = struct {
+    /// Hann (raised cosine) window.
     pub fn hann(window: []f32) void {
         sys.dsps_wind_hann_f32(window.ptr, @intCast(window.len));
     }
 
+    /// Blackman window.
     pub fn blackman(window: []f32) void {
         sys.dsps_wind_blackman_f32(window.ptr, @intCast(window.len));
     }
 
+    /// Blackman–Harris window (4-term).
     pub fn blackmanHarris(window: []f32) void {
         sys.dsps_wind_blackman_harris_f32(window.ptr, @intCast(window.len));
     }
 
+    /// Blackman–Nuttall window.
     pub fn blackmanNuttall(window: []f32) void {
         sys.dsps_wind_blackman_nuttall_f32(window.ptr, @intCast(window.len));
     }
 
+    /// Nuttall window (continuous first derivative).
     pub fn nuttall(window: []f32) void {
         sys.dsps_wind_nuttall_f32(window.ptr, @intCast(window.len));
     }
 
+    /// Flat-top window (accurate amplitude measurement).
     pub fn flatTop(window: []f32) void {
         sys.dsps_wind_flat_top_f32(window.ptr, @intCast(window.len));
     }
@@ -318,6 +384,7 @@ pub const Window = struct {
 // Biquad IIR filter
 // ═══════════════════════════════════════════════════════════════════════════
 
+/// Available IIR biquad filter topologies.
 pub const BiquadFilterType = enum {
     lowpass,
     highpass,
@@ -331,6 +398,7 @@ pub const BiquadFilterType = enum {
     high_shelf,
 };
 
+/// Second-order IIR biquad filter with coefficient generators.
 pub const BiquadFilter = struct {
     coeffs: [5]f32,
     state: [2]f32,
@@ -370,6 +438,7 @@ pub const BiquadFilter = struct {
 // Convolution and correlation
 // ═══════════════════════════════════════════════════════════════════════════
 
+/// Convolution, correlation, tone generation, SNR, and SFDR helpers.
 pub const Signal = struct {
     /// Convolution: convout = Signal ⊛ Kernel
     pub fn convolveF32(signal: []const f32, kernel: []const f32, output: []f32) !void {
@@ -401,6 +470,7 @@ pub const Signal = struct {
 // DCT (Discrete Cosine Transform)
 // ═══════════════════════════════════════════════════════════════════════════
 
+/// Forward and inverse Discrete Cosine Transform (in-place).
 pub const DCT = struct {
     /// Forward DCT (in-place)
     pub fn forwardF32(data: []f32) !void {
@@ -417,6 +487,7 @@ pub const DCT = struct {
 // Utility functions
 // ═══════════════════════════════════════════════════════════════════════════
 
+/// Power-of-two checks and debug signal/spectrum visualisation.
 pub const Utils = struct {
     /// Check if a number is a power of two
     pub fn isPowerOfTwo(x: i32) bool {

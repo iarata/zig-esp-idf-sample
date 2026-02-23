@@ -1,3 +1,48 @@
+//! # Display & Touch Bring-Up Library (`display_touch.zig`)
+//!
+//! **What:** A one-call hardware initialisation library for the Waveshare
+//! ESP32-S3 1.8" AMOLED board (368×448, SH8601 OLED controller, FT5x06
+//! capacitive touch).
+//!
+//! **What it does:**
+//!   1. Powers the board via the AXP2101 PMIC (I²C on GPIO 15/14).
+//!   2. Configures a quad-SPI bus (SPI2) and attaches the SH8601 panel driver.
+//!   3. Sends the SH8601 init command sequence (sleep-out, tear, brightness).
+//!   4. Optionally probes the FT5x06 touch controller over I²C with
+//!      configurable retries and a fallback frequency (400 kHz → 100 kHz).
+//!   5. Creates LVGL display and (if touch succeeds) input-device handles via
+//!      `esp_lvgl_port`.
+//!
+//! **How:** Call `init(.{})` (or `initDefault()`) from your `app_main` after
+//! the scheduler is running.  The function returns an `lvgl.IntegratedDisplay`
+//! containing both the display and optional input-device handles.
+//!
+//! **When to use:** Any time you want to bring up the screen and touch on
+//! the Waveshare AMOLED board.  All pins and timings have sensible defaults
+//! but can be overridden through `InitOptions`.
+//!
+//! **What it takes:**
+//!   - `InitOptions` — composite config containing:
+//!       - `PinConfig`     — SPI / I²C GPIOs (defaults match Waveshare board).
+//!       - `DisplayConfig` — resolution, buffers, rotation, flags.
+//!       - `TouchConfig`   — I²C freq, retries, probe timeout, transforms.
+//!       - `PowerConfig`   — rail-settle delay.
+//!       - `lvgl_port_cfg` — LVGL port timer period, stack size, etc.
+//!
+//! **Example:**
+//! ```zig
+//! const dt = @import("display_touch");
+//!
+//! // Default bring-up (368×448, double-buffered, touch with retries):
+//! const integrated = try dt.init(.{});
+//!
+//! // Custom: no touch, single buffer, rotated:
+//! const integrated2 = try dt.init(.{
+//!     .display = .{ .double_buffer = false, .rotation = .{ .swap_xy = true } },
+//!     .touch   = .{ .required = false },
+//! });
+//! ```
+
 const std = @import("std");
 const idf = @import("esp_idf");
 const c = idf.sys;
@@ -162,6 +207,9 @@ const sh8601_init_cmds = [_]c.sh8601_lcd_init_cmd_t{
 const lv_color_format_rgb565: c_int = 0x12;
 
 // SH8601 requires even start/end boundaries for clean partial updates.
+/// LVGL rounder callback that expands invalidated areas to even boundaries.
+/// SH8601 partial refreshes are more reliable when x/y start and end align
+/// to an even/odd pair.
 fn rounderCb(area: [*c]LvArea) callconv(.c) void {
     if (area == null) return;
 
@@ -176,14 +224,20 @@ fn rounderCb(area: [*c]LvArea) callconv(.c) void {
     area.*.y2 = ((y2 >> 1) << 1) + 1;
 }
 
+/// Zig does not implicitly coerce `bool` into packed `u1` fields, so this keeps
+/// C interop assignments explicit and local.
 fn asBit(value: bool) u1 {
     return if (value) 1 else 0;
 }
 
+/// Makes the common board profile one call so apps don't duplicate defaults.
 pub fn initDefault() !lvgl.IntegratedDisplay {
     return init(.{});
 }
 
+/// Enforces bring-up ordering that this board depends on:
+/// PMU rails first, display path second, and touch last with retries/fallback
+/// so display-only operation still works when touch init is flaky.
 pub fn init(options: InitOptions) !lvgl.IntegratedDisplay {
     if (options.init_lvgl_port) {
         try lvgl.initPort(options.lvgl_port_cfg);

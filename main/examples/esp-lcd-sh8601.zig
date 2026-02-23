@@ -1,3 +1,31 @@
+//! # SH8601 AMOLED Raw Panel Example (`esp-lcd-sh8601.zig`)
+//!
+//! **What:** A low-level display example that drives the SH8601 AMOLED panel
+//! directly over QSPI — **no LVGL** involved.  Draws animated colour bands
+//! to exercise the full pixel pipeline.
+//!
+//! **What it does:**
+//!   1. Powers the board via AXP2101 PMIC.
+//!   2. Initialises the SPI2 bus in quad-SPI mode (D0–D3, SCLK, CS).
+//!   3. Attaches an `esp_lcd_panel_io_spi` handle, then creates and resets
+//!      an SH8601 panel with a custom init-command table.
+//!   4. Loops forever, drawing 2-line chunks of cycling colour bands
+//!      (red → green → blue → yellow → cyan → magenta) at ~8 fps.
+//!
+//! **How:** Build and flash with:
+//! ```sh
+//! zig build -Dapp_source=main/examples/esp-lcd-sh8601.zig
+//! idf.py flash monitor
+//! ```
+//!
+//! **When to use:** To validate the panel bus wiring, SPI clock rate, init
+//! command sequence, and scanline orientation before integrating LVGL.
+//!
+//! **What it takes:**
+//!   - Waveshare ESP32-S3 1.8″ AMOLED board (or compatible SH8601 setup).
+//!   - QSPI GPIOs: SCLK=11, D0=4, D1=5, D2=6, D3=7, CS=12.
+//!   - AXP2101 on I²C₀ (SDA=15, SCL=14) for power rails.
+
 const std = @import("std");
 const builtin = @import("builtin");
 const idf = @import("esp_idf");
@@ -124,6 +152,8 @@ comptime {
     @export(&main, .{ .name = "app_main" });
 }
 
+/// In bring-up examples we fail fast on any ESP-IDF error so hardware is not
+/// left in a half-configured state that hides the root cause.
 fn espCheck(err: c.esp_err_t, comptime context: []const u8) void {
     idf.err.espCheckError(err) catch |check_err| {
         log.err("{s} failed: {s}", .{ context, @errorName(check_err) });
@@ -131,6 +161,8 @@ fn espCheck(err: c.esp_err_t, comptime context: []const u8) void {
     };
 }
 
+/// Banding makes scanline orientation and color ordering mistakes obvious in a
+/// single frame, which is more diagnostic than a flat test color.
 fn colorForBand(frame: usize, y_start: usize) u16 {
     const band = ((y_start / 56) + frame) % 6;
     return switch (band) {
@@ -143,6 +175,8 @@ fn colorForBand(frame: usize, y_start: usize) u16 {
     };
 }
 
+/// Exercises the raw panel path (no LVGL) so display bus/panel issues can be
+/// isolated from UI framework behavior.
 fn main() callconv(.c) void {
     log.info("Enabling AMOLED power rails via AXP2101 (I2C{d})", .{PMU_I2C_PORT});
     espCheck(c.waveshare_axp2101_init(PMU_I2C_PORT, PMU_I2C_SDA, PMU_I2C_SCL, PMU_I2C_FREQ_HZ), "waveshare_axp2101_init");

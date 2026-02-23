@@ -1,3 +1,30 @@
+//! # Integrated LVGL Display + Touch Example (`lvgl-integrated-display.zig`)
+//!
+//! **What:** A full-board GUI example that uses the `display_touch` library
+//! for one-call hardware init and the `app_ui` helpers for UI composition.
+//! Updates an on-screen label with the running uptime every second.
+//!
+//! **What it does:**
+//!   1. Calls `display_touch.initDefault()` — PMU, QSPI display, touch.
+//!   2. Mounts a centred label via `ui.mount(...)` inside an LVGL lock.
+//!   3. In a 1 s loop: acquires the LVGL lock, formats an uptime string, and
+//!      calls `root.setText(...)` to update the label.
+//!
+//! **How:** Build and flash with:
+//! ```sh
+//! zig build -Dapp_source=main/examples/lvgl-integrated-display.zig
+//! idf.py flash monitor
+//! ```
+//!
+//! **When to use:** As the recommended starting template for GUI applications
+//! on the Waveshare AMOLED board.  It separates hardware init from UI logic
+//! so either can be swapped independently.
+//!
+//! **What it takes:**
+//!   - Waveshare ESP32-S3 1.8″ AMOLED board.
+//!   - Components: `esp_lvgl_port`, LVGL, SH8601 driver, FT5x06 driver,
+//!     AXP2101 PMU driver.
+
 const std = @import("std");
 const builtin = @import("builtin");
 const idf = @import("esp_idf");
@@ -11,6 +38,8 @@ comptime {
     @export(&main, .{ .name = "app_main" });
 }
 
+/// Shows the "happy path" integration where board bring-up and UI composition
+/// stay separate, making it easier to swap UI without touching hardware init.
 fn main() callconv(.c) void {
     const integrated = display_touch.initDefault() catch |err| {
         log.err("display_touch.initDefault failed: {s}", .{@errorName(err)});

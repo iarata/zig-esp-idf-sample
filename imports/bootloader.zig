@@ -1,6 +1,40 @@
+//! # Bootloader & eFuse Register Bindings (`bl`)
+//!
+//! **What:** Low-level Zig struct mirrors of the ESP32-S3 eFuse peripheral
+//! register layout, covering program data, MAC/SPI, key blocks, and
+//! read/command registers.
+//!
+//! **What it does:** Provides a 1:1 `extern struct` mapping (`efuse_dev_t`) of
+//! every eFuse register word so you can read or write eFuse fields from Zig
+//! code without going through the C `esp_efuse_*` API.
+//!
+//! **How:** Each field is a typed register struct imported from `sys` and
+//! zero-initialised via `std.mem.zeroes`.  The layout matches the SoC
+//! datasheet register map, so you can cast MMIO pointers directly.
+//!
+//! **When to use:**
+//!   - Manufacturing provisioning tools that burn custom eFuse keys.
+//!   - Boot diagnostics that need raw register reads.
+//!   - For normal application code, prefer the higher-level
+//!     `esp_efuse_read_field_*` APIs instead.
+//!
+//! **What it takes:** No runtime dependencies — struct definitions only.
+//!
+//! **Example:**
+//! ```zig
+//! const bl = idf.bl;
+//! // Read the MAC/SPI system eFuse registers:
+//! const dev: *volatile bl.efuse_dev_t = @ptrFromInt(0x60007000);
+//! const mac0 = dev.rd_mac_spi_sys_0;
+//! ```
+
 const sys = @import("sys");
 const std = @import("std");
 
+/// Complete ESP32-S3 eFuse peripheral register map.
+/// Maps 1:1 to the hardware registers at the eFuse base address (0x60007000).
+/// Fields include program data words, key blocks 0–5, MAC/SPI system data,
+/// error registers, clock/timing config, and interrupt registers.
 pub const efuse_dev_t = extern struct {
     pgm_data0: efuse_pgm_data0_reg_t = std.mem.zeroes(sys.efuse_pgm_data0_reg_t),
     pgm_data1: efuse_pgm_data1_reg_t = std.mem.zeroes(sys.efuse_pgm_data1_reg_t),
@@ -121,18 +155,23 @@ pub const efuse_dev_t = extern struct {
     reserved_1f8: u32 = std.mem.zeroes(sys.reserved_1f8),
     date: efuse_date_reg_t = std.mem.zeroes(sys.efuse_date_reg_t),
 };
+/// Global eFuse device register instance.
 pub extern var EFUSE: efuse_dev_t;
 
+/// OTA partition selection entry stored in the OTA info partition.
+/// Contains sequence number, label, state, and CRC for boot selection.
 pub const esp_ota_select_entry_t = extern struct {
     ota_seq: u32 = std.mem.zeroes(u32),
     seq_label: [20]u8 = std.mem.zeroes([20]u8),
     ota_state: u32 = std.mem.zeroes(u32),
     crc: u32 = std.mem.zeroes(u32),
 };
+/// Partition position descriptor (offset and size in flash).
 pub const esp_partition_pos_t = extern struct {
     offset: u32 = std.mem.zeroes(u32),
     size: u32 = std.mem.zeroes(u32),
 };
+/// Partition table entry as stored in flash.
 pub const esp_partition_info_t = extern struct {
     magic: u16 = std.mem.zeroes(u16),
     type: u8 = std.mem.zeroes(u8),
@@ -141,10 +180,14 @@ pub const esp_partition_info_t = extern struct {
     label: [16]u8 = std.mem.zeroes([16]u8),
     flags: u32 = std.mem.zeroes(u32),
 };
+/// Verify the partition table at the given pointer. Returns ESP_OK on success.
 pub extern fn esp_partition_table_verify(partition_table: [*c]const esp_partition_info_t, log_errors: bool, num_partitions: [*c]c_int) sys.esp_err_t;
+/// Check whether a flash region is writable.
 pub extern fn esp_partition_is_flash_region_writable(addr: usize, size: usize) bool;
+/// Check whether a flash region is safe for main flash operations.
 pub extern fn esp_partition_main_flash_region_safe(addr: usize, size: usize) bool;
 
+/// ESP chip identification codes used in image headers.
 pub const esp_chip_id_t = enum(c_ushort) {
     ESP_CHIP_ID_ESP32 = 0,
     ESP_CHIP_ID_ESP32S2 = 2,
@@ -156,6 +199,7 @@ pub const esp_chip_id_t = enum(c_ushort) {
     ESP_CHIP_ID_ESP32P4 = 18,
     ESP_CHIP_ID_INVALID = 65535,
 };
+/// SPI flash mode (QIO, QOUT, DIO, DOUT, etc.) encoded in the image header.
 pub const esp_image_spi_mode_t = enum(c_uint) {
     ESP_IMAGE_SPI_MODE_QIO = 0,
     ESP_IMAGE_SPI_MODE_QOUT = 1,
@@ -164,12 +208,14 @@ pub const esp_image_spi_mode_t = enum(c_uint) {
     ESP_IMAGE_SPI_MODE_FAST_READ = 4,
     ESP_IMAGE_SPI_MODE_SLOW_READ = 5,
 };
+/// SPI flash clock frequency divider encoded in the image header.
 pub const esp_image_spi_freq_t = enum(c_uint) {
     ESP_IMAGE_SPI_SPEED_DIV_2 = 0,
     ESP_IMAGE_SPI_SPEED_DIV_3 = 1,
     ESP_IMAGE_SPI_SPEED_DIV_4 = 2,
     ESP_IMAGE_SPI_SPEED_DIV_1 = 15,
 };
+/// Flash size identifier encoded in the image header.
 pub const esp_image_flash_size_t = enum(c_uint) {
     ESP_IMAGE_FLASH_SIZE_1MB = 0,
     ESP_IMAGE_FLASH_SIZE_2MB = 1,
@@ -183,12 +229,15 @@ pub const esp_image_flash_size_t = enum(c_uint) {
 };
 
 // /esp-idf/components/bootloader_support/include/esp_app_format.h:85:13: warning: struct demoted to opaque type - has bitfield
+/// Opaque image header struct (demoted from C due to bitfields).
 pub const esp_image_header_t = opaque {};
 // /.espressif/tools/riscv32-esp-elf/esp-13.2.0_20230928/riscv32-esp-elf/riscv32-esp-elf/sys-include/assert.h:45:24: warning: ignoring StaticAssert declaration
+/// Image segment header: load address and data length for one segment.
 pub const esp_image_segment_header_t = extern struct {
     load_addr: u32 = std.mem.zeroes(u32),
     data_len: u32 = std.mem.zeroes(u32),
 };
+/// Complete image metadata: header, segments, digest, and secure version.
 pub const esp_image_metadata_t = extern struct {
     start_addr: u32 = std.mem.zeroes(u32),
     image: esp_image_header_t = std.mem.zeroes(sys.esp_image_header_t),
@@ -198,6 +247,7 @@ pub const esp_image_metadata_t = extern struct {
     image_digest: [32]u8 = std.mem.zeroes([32]u8),
     secure_version: u32 = std.mem.zeroes(u32),
 };
+/// Image verification mode (normal or silent).
 pub const esp_image_load_mode_t = enum(c_uint) {
     ESP_IMAGE_VERIFY = 0,
     ESP_IMAGE_VERIFY_SILENT = 1,
@@ -208,6 +258,7 @@ const union_unnamed_2 = extern union {
     unnamed_0: unnamed_3,
     val: u8,
 };
+/// RTC memory retained across deep sleep for bootloader state persistence.
 pub const rtc_retain_mem_t = extern struct {
     partition: esp_partition_pos_t = std.mem.zeroes(sys.esp_partition_pos_t),
     reboot_counter: u16 = std.mem.zeroes(u16),
@@ -216,13 +267,21 @@ pub const rtc_retain_mem_t = extern struct {
     crc: u32 = std.mem.zeroes(u32),
 };
 // /.espressif/tools/riscv32-esp-elf/esp-13.2.0_20230928/riscv32-esp-elf/riscv32-esp-elf/sys-include/assert.h:45:24: warning: ignoring StaticAssert declaration
+/// Verify an application or bootloader image at the given partition position.
 pub extern fn esp_image_verify(mode: esp_image_load_mode_t, part: [*c]const esp_partition_pos_t, data: ?*esp_image_metadata_t) sys.esp_err_t;
+/// Read image metadata from a partition without full verification.
 pub extern fn esp_image_get_metadata(part: [*c]const esp_partition_pos_t, metadata: ?*esp_image_metadata_t) sys.esp_err_t;
+/// Load and verify a bootloader image from flash.
 pub extern fn bootloader_load_image(part: [*c]const esp_partition_pos_t, data: ?*esp_image_metadata_t) sys.esp_err_t;
+/// Load a bootloader image without verification (use with caution).
 pub extern fn bootloader_load_image_no_verify(part: [*c]const esp_partition_pos_t, data: ?*esp_image_metadata_t) sys.esp_err_t;
+/// Verify the bootloader image and optionally return its length.
 pub extern fn esp_image_verify_bootloader(length: [*c]u32) sys.esp_err_t;
+/// Verify the bootloader image and return full metadata.
 pub extern fn esp_image_verify_bootloader_data(data: ?*esp_image_metadata_t) sys.esp_err_t;
+/// Convert a flash size enum to the actual size in bytes.
 pub extern fn esp_image_get_flash_size(app_flash_size: esp_image_flash_size_t) c_int;
+/// Flash memory mapping addresses and sizes for DROM (data) and IROM (instruction) regions.
 pub const esp_image_flash_mapping_t = extern struct {
     drom_addr: u32 = std.mem.zeroes(u32),
     drom_load_addr: u32 = std.mem.zeroes(u32),
@@ -231,15 +290,18 @@ pub const esp_image_flash_mapping_t = extern struct {
     irom_load_addr: u32 = std.mem.zeroes(u32),
     irom_size: u32 = std.mem.zeroes(u32),
 };
+/// GPIO hold-down detection result for boot mode selection.
 pub const esp_comm_gpio_hold_t = enum(c_int) {
     GPIO_LONG_HOLD = 1,
     GPIO_SHORT_HOLD = -1,
     GPIO_NOT_HOLD = 0,
 };
+/// Image type discriminator (bootloader vs. application).
 pub const esp_image_type = enum(c_uint) {
     ESP_IMAGE_BOOTLOADER = 0,
     ESP_IMAGE_APPLICATION = 1,
 };
+/// Read OTA selection data from the OTA info partition.
 pub extern fn bootloader_common_read_otadata(ota_info: [*c]const esp_partition_pos_t, two_otadata: [*c]esp_ota_select_entry_t) sys.esp_err_t;
 pub extern fn bootloader_common_ota_select_crc(s: [*c]const esp_ota_select_entry_t) u32;
 pub extern fn bootloader_common_ota_select_valid(s: [*c]const esp_ota_select_entry_t) bool;
@@ -255,16 +317,21 @@ pub extern fn bootloader_common_select_otadata(two_otadata: [*c]const esp_ota_se
 pub extern fn bootloader_common_get_chip_ver_pkg() u32;
 pub extern fn bootloader_common_check_chip_validity(img_hdr: ?*const esp_image_header_t, @"type": esp_image_type) sys.esp_err_t;
 pub extern fn bootloader_common_vddsdio_configure() void;
+/// Check whether two memory regions overlap.
 pub fn bootloader_util_regions_overlap(start1: isize, end1: isize, start2: isize, end2: isize) callconv(.C) bool {
     return (end1 > start2) and (end2 > start1);
 }
+/// Enable the hardware random number generator for boot-time entropy.
 pub extern fn bootloader_random_enable() void;
+/// Disable the hardware random number generator.
 pub extern fn bootloader_random_disable() void;
+/// Fill a buffer with random bytes from the hardware RNG.
 pub extern fn bootloader_fill_random(buffer: ?*anyopaque, length: usize) void;
 pub extern fn esp_rom_efuse_mac_address_crc8(data: [*:0]const u8, len: u32) u8;
 pub extern fn esp_rom_efuse_get_flash_gpio_info() u32;
 pub extern fn esp_rom_efuse_get_flash_wp_gpio() u32;
 pub extern fn esp_rom_efuse_is_secure_boot_enabled() bool;
+/// eFuse key purpose identifiers (encryption, HMAC, secure boot digest, etc.).
 pub const ets_efuse_purpose_t = enum(c_uint) {
     ETS_EFUSE_KEY_PURPOSE_USER = 0,
     ETS_EFUSE_KEY_PURPOSE_RESERVED = 1,
@@ -278,6 +345,7 @@ pub const ets_efuse_purpose_t = enum(c_uint) {
     ETS_EFUSE_KEY_PURPOSE_SECURE_BOOT_DIGEST2 = 11,
     ETS_EFUSE_KEY_PURPOSE_MAX = 12,
 };
+/// eFuse block identifiers (BLOCK0 through KEY5 and system data blocks).
 pub const ets_efuse_block_t = enum(c_uint) {
     ETS_EFUSE_BLOCK0 = 0,
     ETS_EFUSE_MAC_SPI_SYS_0 = 1,
@@ -321,27 +389,35 @@ pub extern fn ets_efuse_force_send_resume() bool;
 pub extern fn ets_efuse_get_flash_delay_us() u32;
 pub extern fn ets_jtag_enable_temporarily(jtag_hmac_key: [*:0]const u8, key_block: ets_efuse_block_t) c_int;
 pub extern fn esp_crc8(p: [*:0]const u8, len: c_uint) u8;
+/// Read the flash encryption boot count from eFuse.
 pub inline fn efuse_ll_get_flash_crypt_cnt() u32 {
     return EFUSE.rd_repeat_data1.unnamed_0.spi_boot_crypt_cnt;
 }
+/// Read the watchdog delay selection from eFuse.
 pub inline fn efuse_ll_get_wdt_delay_sel() u32 {
     return EFUSE.rd_repeat_data1.unnamed_0.wdt_delay_sel;
 }
+/// Read the first 32 bits of the MAC address from eFuse.
 pub inline fn efuse_ll_get_mac0() u32 {
     return EFUSE.rd_mac_spi_sys_0.unnamed_0.mac_0;
 }
+/// Read the upper 16 bits of the MAC address from eFuse.
 pub inline fn efuse_ll_get_mac1() u32 {
     return EFUSE.rd_mac_spi_sys_1.unnamed_0.mac_1;
 }
+/// Check if secure boot v2 is enabled in eFuse.
 pub inline fn efuse_ll_get_secure_boot_v2_en() bool {
     return EFUSE.rd_repeat_data2.unnamed_0.secure_boot_en != 0;
 }
+/// Check if error-reset is enabled in eFuse.
 pub inline fn efuse_ll_get_err_rst_enable() bool {
     return EFUSE.rd_repeat_data3.unnamed_0.err_rst_enable != 0;
 }
+/// Read the chip wafer version major number from eFuse.
 pub inline fn efuse_ll_get_chip_wafer_version_major() u32 {
     return EFUSE.rd_mac_spi_sys_5.unnamed_0.wafer_version_major;
 }
+/// Read the chip wafer version minor number from eFuse (combined hi/lo bits).
 pub inline fn efuse_ll_get_chip_wafer_version_minor() u32 {
     return @as(u32, @bitCast((@as(c_int, @bitCast(EFUSE.rd_mac_spi_sys_5.unnamed_0.wafer_version_minor_hi)) << @intCast(3)) + @as(c_int, @bitCast(EFUSE.rd_mac_spi_sys_3.unnamed_0.wafer_version_minor_lo))));
 }
@@ -357,6 +433,7 @@ pub inline fn efuse_ll_get_blk_version_minor() u32 {
 pub inline fn efuse_ll_get_disable_blk_version_major() bool {
     return EFUSE.rd_repeat_data4.unnamed_0.disable_blk_version_major != 0;
 }
+/// Read the chip package version from eFuse.
 pub inline fn efuse_ll_get_chip_ver_pkg() u32 {
     return EFUSE.rd_mac_spi_sys_3.unnamed_0.pkg_version;
 }
@@ -378,21 +455,27 @@ pub inline fn efuse_ll_get_v_dig_dbias20() u32 {
 pub inline fn efuse_ll_get_dig_dbias_hvt() u32 {
     return EFUSE.rd_mac_spi_sys_5.unnamed_0.dig_dbias_hvt;
 }
+/// Check the eFuse read command status.
 pub inline fn efuse_ll_get_read_cmd() bool {
     return EFUSE.cmd.unnamed_0.read_cmd != 0;
 }
+/// Check the eFuse program command status.
 pub inline fn efuse_ll_get_pgm_cmd() bool {
     return EFUSE.cmd.unnamed_0.pgm_cmd != 0;
 }
+/// Issue an eFuse read command.
 pub inline fn efuse_ll_set_read_cmd() void {
     EFUSE.cmd.unnamed_0.read_cmd = 1;
 }
+/// Issue an eFuse program command for the given block.
 pub inline fn efuse_ll_set_pgm_cmd(block: u32) void {
     EFUSE.cmd.val = @as(u32, @bitCast(@as(c_uint, @truncate(@as(c_ulong, @bitCast(@as(c_ulong, (block << @intCast(2)) & (@as(c_uint, 15) << @intCast(2))))) | (@as(c_ulong, 1) << @intCast(@as(c_int, 1)))))));
 }
+/// Set the eFuse configuration register to read operation code.
 pub inline fn efuse_ll_set_conf_read_op_code() void {
     EFUSE.conf.unnamed_0.op_code = @as(u32, @bitCast(@as(c_int, 23205)));
 }
+/// Set the eFuse configuration register to write operation code.
 pub inline fn efuse_ll_set_conf_write_op_code() void {
     EFUSE.conf.unnamed_0.op_code = @as(u32, @bitCast(@as(c_int, 23130)));
 }
@@ -408,6 +491,7 @@ pub inline fn efuse_ll_set_pwr_on_num(val: u16) void {
 pub inline fn efuse_ll_set_pwr_off_num(value: u16) void {
     EFUSE.wr_tim_conf2.unnamed_0.pwr_off_num = @as(u32, @bitCast(@as(c_uint, value)));
 }
+/// ETS ROM status codes.
 pub const ETS_STATUS = enum(c_uint) {
     ETS_OK = 0,
     ETS_FAILED = 1,
@@ -415,15 +499,22 @@ pub const ETS_STATUS = enum(c_uint) {
     ETS_BUSY = 3,
     ETS_CANCEL = 4,
 };
+/// Alias for `ETS_STATUS`.
 pub const ets_status_t = ETS_STATUS;
+/// ETS event signal type.
 pub const ETSSignal = u32;
+/// ETS event parameter type.
 pub const ETSParam = u32;
+/// ETS event structure (signal + parameter pair).
 pub const ETSEventTag = extern struct {
     sig: ETSSignal = std.mem.zeroes(sys.ETSSignal),
     par: ETSParam = std.mem.zeroes(sys.ETSParam),
 };
+/// Alias for `ETSEventTag`.
 pub const ETSEvent = ETSEventTag;
+/// ETS task function pointer type.
 pub const ETSTask = ?*const fn ([*c]ETSEvent) callconv(.C) void;
+/// Idle callback function pointer type.
 pub const ets_idle_cb_t = ?*const fn (?*anyopaque) callconv(.C) void;
 pub extern const exc_cause_table: [40][*:0]const u8;
 pub extern fn ets_set_user_start(start: u32) void;
@@ -432,7 +523,9 @@ pub extern fn ets_get_printf_channel() u8;
 pub extern fn ets_install_putc1(p: ?*const fn (u8) callconv(.C) void) void;
 pub extern fn ets_install_putc2(p: ?*const fn (u8) callconv(.C) void) void;
 pub extern fn ets_install_uart_printf() void;
+/// Timer callback function type for ETS timers.
 pub const ETSTimerFunc = fn (?*anyopaque) callconv(.C) void;
+/// ETS software timer node (linked-list entry with expiry, period, and callback).
 pub const _ETSTIMER_ = extern struct {
     timer_next: [*c]_ETSTIMER_ = std.mem.zeroes([*c]_ETSTIMER_),
     timer_expire: u32 = std.mem.zeroes(u32),
@@ -440,6 +533,7 @@ pub const _ETSTIMER_ = extern struct {
     timer_func: ?*const ETSTimerFunc = std.mem.zeroes(?*const ETSTimerFunc),
     timer_arg: ?*anyopaque = null,
 };
+/// Alias for `_ETSTIMER_`.
 pub const ETSTimer = _ETSTIMER_;
 pub extern fn ets_timer_init() void;
 pub extern fn ets_timer_deinit() void;
@@ -448,12 +542,17 @@ pub extern fn ets_timer_arm_us(ptimer: [*c]ETSTimer, us: u32, repeat: bool) void
 pub extern fn ets_timer_disarm(timer: [*c]ETSTimer) void;
 pub extern fn ets_timer_setfn(ptimer: [*c]ETSTimer, pfunction: ?*const ETSTimerFunc, parg: ?*anyopaque) void;
 pub extern fn ets_timer_done(ptimer: [*c]ETSTimer) void;
+/// Delay execution for `us` microseconds.
 pub extern fn ets_delay_us(us: u32) void;
+/// Update the cached CPU frequency (ticks per microsecond).
 pub extern fn ets_update_cpu_frequency(ticks_per_us: u32) void;
+/// Get the current CPU frequency in MHz.
 pub extern fn ets_get_cpu_frequency() u32;
+/// Get the crystal oscillator frequency in Hz.
 pub extern fn ets_get_xtal_freq() u32;
 pub extern fn ets_get_xtal_div() u32;
 pub extern fn ets_get_apb_freq() u32;
+/// ISR handler function pointer type.
 pub const ets_isr_t = ?*const fn (?*anyopaque) callconv(.C) void;
 pub extern fn ets_isr_attach(i: c_int, func: ets_isr_t, arg: ?*anyopaque) void;
 pub extern fn ets_isr_mask(mask: u32) void;
@@ -461,6 +560,7 @@ pub extern fn ets_isr_unmask(unmask: u32) void;
 pub extern fn ets_intr_lock() void;
 pub extern fn ets_intr_unlock() void;
 pub extern fn intr_matrix_set(cpu_no: c_int, model_num: u32, intr_num: u32) void;
+/// RSA public key structure used for secure boot signature verification.
 pub const ets_rsa_pubkey_t = extern struct {
     n: [384]u8 = std.mem.zeroes([384]u8),
     e: u32 = std.mem.zeroes(u32),
@@ -470,6 +570,7 @@ pub const ets_rsa_pubkey_t = extern struct {
 pub extern fn ets_rsa_pss_verify(key: [*c]const ets_rsa_pubkey_t, sig: [*:0]const u8, digest: [*:0]const u8, verified_digest: [*c]u8) bool;
 pub extern fn ets_mgf1_sha256(mgfSeed: [*:0]const u8, seedLen: usize, maskLen: usize, mask: [*c]u8) void;
 pub extern fn ets_emsa_pss_verify(encoded_message: [*:0]const u8, mhash: [*:0]const u8) bool;
+/// Secure boot signature block containing an RSA key, image digest, and signature.
 pub const ets_secure_boot_sig_block = extern struct {
     magic_byte: u8 = std.mem.zeroes(u8),
     version: u8 = std.mem.zeroes(u8),
@@ -481,17 +582,23 @@ pub const ets_secure_boot_sig_block = extern struct {
     block_crc: u32 = std.mem.zeroes(u32),
     _padding: [16]u8 = std.mem.zeroes([16]u8),
 };
+/// Alias for `ets_secure_boot_sig_block`.
 pub const ets_secure_boot_sig_block_t = ets_secure_boot_sig_block;
+/// Complete secure boot signature (up to 3 signature blocks + padding).
 pub const ets_secure_boot_signature = extern struct {
     block: [3]ets_secure_boot_sig_block_t = std.mem.zeroes([3]ets_secure_boot_sig_block_t),
     _padding: [448]u8 = std.mem.zeroes([448]u8),
 };
+/// Alias for `ets_secure_boot_signature`.
 pub const ets_secure_boot_signature_t = ets_secure_boot_signature;
+/// Trusted key digests for secure boot verification.
 pub const ets_secure_boot_key_digests = extern struct {
     key_digests: [3]?*const anyopaque = std.mem.zeroes([3]?*const anyopaque),
     allow_key_revoke: bool = std.mem.zeroes(bool),
 };
+/// Alias for `ets_secure_boot_key_digests`.
 pub const ets_secure_boot_key_digests_t = ets_secure_boot_key_digests;
+/// Secure boot verification result codes.
 pub const ets_secure_boot_status_t = enum(c_uint) {
     SB_SUCCESS = 978999973,
     SB_FAILED = 1966311518,
@@ -502,6 +609,7 @@ pub extern fn ets_secure_boot_verify_signature(sig: [*c]const ets_secure_boot_si
 pub extern fn ets_secure_boot_revoke_public_key_digest(index: c_int) void;
 // /.espressif/tools/riscv32-esp-elf/esp-13.2.0_20230928/riscv32-esp-elf/riscv32-esp-elf/sys-include/assert.h:45:24: warning: ignoring StaticAssert declaration
 // /.espressif/tools/riscv32-esp-elf/esp-13.2.0_20230928/riscv32-esp-elf/riscv32-esp-elf/sys-include/assert.h:45:24: warning: ignoring StaticAssert declaration
+/// Check if secure boot v2 is enabled via eFuse.
 pub fn esp_secure_boot_enabled() callconv(.C) bool {
     return efuse_ll_get_secure_boot_v2_en();
 }
@@ -509,16 +617,19 @@ pub extern fn esp_secure_boot_generate_digest() sys.esp_err_t;
 pub extern fn esp_secure_boot_permanently_enable() sys.esp_err_t;
 pub extern fn esp_secure_boot_v2_permanently_enable(image_data: ?*const esp_image_metadata_t) sys.esp_err_t;
 pub extern fn esp_secure_boot_verify_signature(src_addr: u32, length: u32) sys.esp_err_t;
+/// ECDSA-based secure boot v1 signature block.
 pub const esp_secure_boot_sig_block_t = extern struct {
     version: u32 = std.mem.zeroes(u32),
     signature: [64]u8 = std.mem.zeroes([64]u8),
 };
 pub extern fn esp_secure_boot_verify_ecdsa_signature_block(sig_block: [*c]const esp_secure_boot_sig_block_t, image_digest: [*:0]const u8, verified_digest: [*c]u8) sys.esp_err_t;
+/// Public key digest storage for image signature verification (up to 3 keys).
 pub const esp_image_sig_public_key_digests_t = extern struct {
     key_digests: [3][32]u8 = std.mem.zeroes([3][32]u8),
     num_digests: c_uint = std.mem.zeroes(c_uint),
 };
 pub extern fn esp_secure_boot_verify_signature_block(sig_block: [*c]const esp_secure_boot_sig_block_t, image_digest: [*:0]const u8) sys.esp_err_t;
+/// IV + digest pair used in secure boot flash encryption.
 pub const esp_secure_boot_iv_digest_t = extern struct {
     iv: [128]u8 = std.mem.zeroes([128]u8),
     digest: [64]u8 = std.mem.zeroes([64]u8),
@@ -526,6 +637,8 @@ pub const esp_secure_boot_iv_digest_t = extern struct {
 pub extern fn esp_secure_boot_init_checks() void;
 pub extern fn esp_secure_boot_enable_secure_features() sys.esp_err_t;
 pub extern fn esp_secure_boot_cfg_verify_release_mode() bool;
+/// Complete bootloader state: OTA info, factory/test/OTA partition positions,
+/// and the selected subtype for boot.
 pub const bootloader_state_t = extern struct {
     ota_info: esp_partition_pos_t = std.mem.zeroes(sys.esp_partition_pos_t),
     factory: esp_partition_pos_t = std.mem.zeroes(sys.esp_partition_pos_t),
@@ -534,14 +647,23 @@ pub const bootloader_state_t = extern struct {
     app_count: u32 = std.mem.zeroes(u32),
     selected_subtype: u32 = std.mem.zeroes(u32),
 };
+/// Perform flash encryption during first boot.
 pub extern fn flash_encrypt(bs: [*c]bootloader_state_t) bool;
+/// Global bootloader image header (populated during boot).
 pub extern var bootloader_image_hdr: esp_image_header_t;
+/// Read the bootloader's own image header from flash.
 pub extern fn bootloader_read_bootloader_header() sys.esp_err_t;
+/// Validate the bootloader image header.
 pub extern fn bootloader_check_bootloader_validity() sys.esp_err_t;
+/// Zero-initialize the BSS section.
 pub extern fn bootloader_clear_bss_section() void;
+/// Configure the watchdog timer for boot.
 pub extern fn bootloader_config_wdt() void;
+/// Enable the RNG for boot-time entropy.
 pub extern fn bootloader_enable_random() void;
+/// Print the bootloader startup banner.
 pub extern fn bootloader_print_banner() void;
+/// Initialize the bootloader (called once during boot).
 pub extern fn bootloader_init() sys.esp_err_t;
 
 const unnamed_4 = opaque {};

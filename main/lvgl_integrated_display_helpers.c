@@ -62,6 +62,7 @@ static const sh8601_lcd_init_cmd_t sh8601_init_cmds[] = {
 };
 
 // SH8601 requires even start/end boundaries for clean partial updates.
+// LVGL calls this before flushing an invalidated area to enforce alignment.
 static void zig_lvgl_rounder_cb(lv_area_t *area)
 {
     int32_t x1 = area->x1;
@@ -75,6 +76,8 @@ static void zig_lvgl_rounder_cb(lv_area_t *area)
     area->y2 = ((y2 >> 1) << 1) + 1;
 }
 
+// Keep demo labels readable across sdkconfig font variants without forcing one
+// large font in Kconfig.
 void zig_lvgl_apply_test_label_style(lv_obj_t *label)
 {
     if (label == NULL) {
@@ -101,6 +104,48 @@ void zig_lvgl_apply_test_label_style(lv_obj_t *label)
     lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
 }
 
+// Apply the "Runa" screen style: black background on the screen, white bold
+// centered text with a downward shadow and tight letter spacing.
+void zig_lvgl_apply_runa_style(lv_obj_t *screen, lv_obj_t *label)
+{
+    if (screen == NULL || label == NULL) {
+        return;
+    }
+
+    // Black background on screen
+    lv_obj_set_style_bg_color(screen, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
+
+    // White text color
+    lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_opa(label, LV_OPA_COVER, 0);
+
+    // Center-aligned text
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+
+    // Text shadow: 0 3px 0 rgba(0,0,0,0.33)
+    lv_obj_set_style_shadow_width(label, 1, 0);
+    lv_obj_set_style_shadow_ofs_x(label, 0, 0);
+    lv_obj_set_style_shadow_ofs_y(label, 3, 0);
+    lv_obj_set_style_shadow_color(label, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_shadow_opa(label, (lv_opa_t)(255 * 0.33), 0);
+    lv_obj_set_style_shadow_spread(label, 0, 0);
+
+    // Largest available Montserrat font (closest to 88px)
+#if LV_FONT_MONTSERRAT_48
+    lv_obj_set_style_text_font(label, &lv_font_montserrat_48, 0);
+#elif LV_FONT_MONTSERRAT_40
+    lv_obj_set_style_text_font(label, &lv_font_montserrat_40, 0);
+#elif LV_FONT_MONTSERRAT_32
+    lv_obj_set_style_text_font(label, &lv_font_montserrat_32, 0);
+#endif
+
+    // Letter spacing: -5.28px → -5 (LVGL uses int)
+    lv_obj_set_style_text_letter_space(label, -5, 0);
+}
+
+// Use a dedicated container so text wrapping/centering remains stable even if
+// the active screen has unrelated styles/layout flags.
 lv_obj_t *zig_lvgl_create_centered_label(const char *text)
 {
     lv_obj_t *screen = lv_screen_active();
@@ -138,6 +183,8 @@ lv_obj_t *zig_lvgl_create_centered_label(const char *text)
     return label;
 }
 
+// Encapsulates the board-specific init order and retry policy so app code can
+// request "integrated display" as a single operation.
 esp_err_t zig_lvgl_touch_amoled_1_8_init(lv_display_t **out_disp, lv_indev_t **out_touch)
 {
     if (out_disp == NULL) {

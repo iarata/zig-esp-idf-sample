@@ -9,3 +9,4 @@ dependencies:
   espressif/esp_lvgl_port: ^2.7.1
   lvgl/lvgl: ^9.5.0
   espressif/esp-dsp: '*'
+  espressif/esp_lcd_qemu_rgb: ^1.0.2

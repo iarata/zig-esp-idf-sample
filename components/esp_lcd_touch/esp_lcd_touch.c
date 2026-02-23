@@ -28,6 +28,7 @@ static const char *TAG = "TP";
 * Public API functions
 *******************************************************************************/
 
+// Keep unsupported sleep explicit (error) instead of silently no-oping.
 esp_err_t esp_lcd_touch_enter_sleep(esp_lcd_touch_handle_t tp)
 {
     assert(tp != NULL);
@@ -39,6 +40,7 @@ esp_err_t esp_lcd_touch_enter_sleep(esp_lcd_touch_handle_t tp)
     }
 }
 
+// Symmetric wake path for controllers that implement sleep states.
 esp_err_t esp_lcd_touch_exit_sleep(esp_lcd_touch_handle_t tp)
 {
     assert(tp != NULL);
@@ -50,6 +52,7 @@ esp_err_t esp_lcd_touch_exit_sleep(esp_lcd_touch_handle_t tp)
     }
 }
 
+// Thin polymorphic wrapper around the controller-specific read hook.
 esp_err_t esp_lcd_touch_read_data(esp_lcd_touch_handle_t tp)
 {
     assert(tp != NULL);
@@ -58,6 +61,8 @@ esp_err_t esp_lcd_touch_read_data(esp_lcd_touch_handle_t tp)
     return tp->read_data(tp);
 }
 
+// Always applies user + transform policy in one place so callers get identical
+// behavior regardless of controller HW feature support.
 bool esp_lcd_touch_get_coordinates(esp_lcd_touch_handle_t tp, uint16_t *x, uint16_t *y, uint16_t *strength, uint8_t *point_num, uint8_t max_point_num)
 {
     bool touched = false;
@@ -106,6 +111,7 @@ bool esp_lcd_touch_get_coordinates(esp_lcd_touch_handle_t tp, uint16_t *x, uint1
     return touched;
 }
 
+// Compatibility adapter for newer point-struct API expected by LVGL port code.
 esp_err_t esp_lcd_touch_get_data(esp_lcd_touch_handle_t tp, esp_lcd_touch_point_data_t *touch_data, uint8_t *point_num, uint8_t max_point_num)
 {
     assert(tp != NULL);
@@ -138,6 +144,7 @@ esp_err_t esp_lcd_touch_get_data(esp_lcd_touch_handle_t tp, esp_lcd_touch_point_
 }
 
 #if (CONFIG_ESP_LCD_TOUCH_MAX_BUTTONS > 0)
+// Optional extension point; many controllers do not expose button states.
 esp_err_t esp_lcd_touch_get_button_state(esp_lcd_touch_handle_t tp, uint8_t n, uint8_t *state)
 {
     assert(tp != NULL);
@@ -155,6 +162,7 @@ esp_err_t esp_lcd_touch_get_button_state(esp_lcd_touch_handle_t tp, uint8_t n, u
 }
 #endif
 
+// Persist config flag even without HW support so software fallback can apply it.
 esp_err_t esp_lcd_touch_set_swap_xy(esp_lcd_touch_handle_t tp, bool swap)
 {
     assert(tp != NULL);
@@ -169,6 +177,7 @@ esp_err_t esp_lcd_touch_set_swap_xy(esp_lcd_touch_handle_t tp, bool swap)
     return ESP_OK;
 }
 
+// Reads hardware state when available, otherwise returns stored fallback state.
 esp_err_t esp_lcd_touch_get_swap_xy(esp_lcd_touch_handle_t tp, bool *swap)
 {
     assert(tp != NULL);
@@ -184,6 +193,8 @@ esp_err_t esp_lcd_touch_get_swap_xy(esp_lcd_touch_handle_t tp, bool *swap)
     return ESP_OK;
 }
 
+// Persisting user intent here lets software fallback still honor mirror-X when
+// the controller lacks a hardware mirror register.
 esp_err_t esp_lcd_touch_set_mirror_x(esp_lcd_touch_handle_t tp, bool mirror)
 {
     assert(tp != NULL);
@@ -198,6 +209,8 @@ esp_err_t esp_lcd_touch_set_mirror_x(esp_lcd_touch_handle_t tp, bool mirror)
     return ESP_OK;
 }
 
+// Read back from hardware when supported; otherwise expose the stored software
+// policy so callers still see deterministic state.
 esp_err_t esp_lcd_touch_get_mirror_x(esp_lcd_touch_handle_t tp, bool *mirror)
 {
     assert(tp != NULL);
@@ -213,6 +226,8 @@ esp_err_t esp_lcd_touch_get_mirror_x(esp_lcd_touch_handle_t tp, bool *mirror)
     return ESP_OK;
 }
 
+// Mirror-Y follows the same persistence rule as mirror-X so transform behavior
+// remains symmetric.
 esp_err_t esp_lcd_touch_set_mirror_y(esp_lcd_touch_handle_t tp, bool mirror)
 {
     assert(tp != NULL);
@@ -227,6 +242,8 @@ esp_err_t esp_lcd_touch_set_mirror_y(esp_lcd_touch_handle_t tp, bool mirror)
     return ESP_OK;
 }
 
+// Mirrors `get_mirror_x` behavior: prefer hardware state, otherwise return the
+// cached software transform flag.
 esp_err_t esp_lcd_touch_get_mirror_y(esp_lcd_touch_handle_t tp, bool *mirror)
 {
     assert(tp != NULL);
@@ -242,6 +259,7 @@ esp_err_t esp_lcd_touch_get_mirror_y(esp_lcd_touch_handle_t tp, bool *mirror)
     return ESP_OK;
 }
 
+// Delegates lifetime management to controller-specific `del` hook.
 esp_err_t esp_lcd_touch_del(esp_lcd_touch_handle_t tp)
 {
     assert(tp != NULL);
@@ -253,6 +271,8 @@ esp_err_t esp_lcd_touch_del(esp_lcd_touch_handle_t tp)
     return ESP_OK;
 }
 
+// Centralizes IRQ registration quirks (e.g., ISR service already installed) so
+// controller drivers don't duplicate this logic.
 esp_err_t esp_lcd_touch_register_interrupt_callback(esp_lcd_touch_handle_t tp, esp_lcd_touch_interrupt_callback_t callback)
 {
     esp_err_t ret = ESP_OK;
@@ -288,6 +308,7 @@ esp_err_t esp_lcd_touch_register_interrupt_callback(esp_lcd_touch_handle_t tp, e
     return ESP_OK;
 }
 
+// Ensures user-data association and handler registration stay in sync.
 esp_err_t esp_lcd_touch_register_interrupt_callback_with_data(esp_lcd_touch_handle_t tp, esp_lcd_touch_interrupt_callback_t callback, void *user_data)
 {
     assert(tp != NULL);

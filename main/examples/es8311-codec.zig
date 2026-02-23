@@ -1,3 +1,30 @@
+//! # ES8311 Audio Codec Example (`es8311-codec.zig`)
+//!
+//! **What:** Brings up the ES8311 stereo audio codec over I²C and exercises
+//! basic volume / mute control.
+//!
+//! **What it does:**
+//!   1. Initialises the legacy I²C master driver (matching the ES8311
+//!      component’s expected API).
+//!   2. Creates an `es8311` handle, configures clock (16 kHz, 16-bit), mic
+//!      gain (12 dB), and volume (60%).
+//!   3. Enters a loop toggling mute on/off every 2 s, reading back current
+//!      volume to confirm register I/O.
+//!
+//! **How:** Build and flash with:
+//! ```sh
+//! zig build -Dapp_source=main/examples/es8311-codec.zig
+//! idf.py flash monitor
+//! ```
+//!
+//! **When to use:** During audio codec bring-up to verify I²C wiring and
+//! register accessibility before adding I²S streaming.
+//!
+//! **What it takes:**
+//!   - An ES8311 codec connected on I²C₀ (SDA=GPIO 15, SCL=GPIO 14).
+//!   - Address `ES8311_ADDRRES_0` (typically 0x18).
+//!   - The `es8311` managed component enabled.
+
 const std = @import("std");
 const builtin = @import("builtin");
 const idf = @import("esp_idf");
@@ -15,6 +42,8 @@ comptime {
     @export(&main, .{ .name = "app_main" });
 }
 
+/// In bring-up examples we fail fast on any ESP-IDF error so hardware is not
+/// left in a half-configured state that hides the root cause.
 fn espCheck(err: c.esp_err_t, comptime context: []const u8) void {
     idf.err.espCheckError(err) catch |check_err| {
         log.err("{s} failed: {s}", .{ context, @errorName(check_err) });
@@ -22,6 +51,8 @@ fn espCheck(err: c.esp_err_t, comptime context: []const u8) void {
     };
 }
 
+/// ES8311 component APIs use legacy `i2c_driver_install`, so this sample
+/// intentionally matches that driver model instead of the new bus API.
 fn initLegacyI2cMaster() void {
     var conf = std.mem.zeroes(c.i2c_config_t);
     conf.mode = @as(c.i2c_mode_t, @intCast(c.I2C_MODE_MASTER));
@@ -39,6 +70,8 @@ fn initLegacyI2cMaster() void {
     }
 }
 
+/// Uses a repetitive mute/readback loop as a smoke test that both write and
+/// read paths are wired correctly before integrating full audio streaming.
 fn main() callconv(.c) void {
     initLegacyI2cMaster();
 

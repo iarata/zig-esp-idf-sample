@@ -1,3 +1,50 @@
+//! # Heap & Memory Allocator Wrappers (`heap`)
+//!
+//! **What:** Zig `std.mem.Allocator` implementations backed by ESP-IDF's
+//! capability-based heap system, plus heap-trace debugging helpers.
+//!
+//! **What it does:**
+//!   - **Caps** — a `packed struct(u32)` that mirrors the `MALLOC_CAP_*` bit
+//!     flags from `esp_heap_caps.h`.  Named presets (`default_caps`,
+//!     `dma_caps`, `spiram_caps`, `rtcram_caps`, `exec_caps`, etc.) cover
+//!     the most common use cases.
+//!   - **HeapCapsAllocator** — full `std.mem.Allocator` backed by
+//!     `heap_caps_aligned_alloc/realloc/free`.  Specify capability flags at
+//!     construction time (e.g. DMA-capable, SPIRAM, internal).  Debug builds
+//!     run `heap_caps_check_integrity_all` after every free.
+//!   - **MultiHeapAllocator** — allocator for a specific `multi_heap_handle_t`
+//!     (useful for custom memory pools).
+//!   - **VPortAllocator** — allocator using FreeRTOS `pvPortMalloc` /
+//!     `vPortFree` for tasks that must use the RTOS heap.
+//!   - **TRACE** — `heap_trace_*` wrapper for leak detection: `initStandalone`,
+//!     `start`, `stop`, `dump`, `summary`.
+//!
+//! **How:** Each allocator struct stores its config (caps or heap handle) and
+//! exposes a `fn allocator(self: *Self) std.mem.Allocator` method that can
+//! be passed to any Zig code expecting an allocator.
+//!
+//! **When to use:**
+//!   - Use `HeapCapsAllocator` when memory placement matters (DMA buffers,
+//!     SPIRAM-backed large arrays, RTC-retained data).
+//!   - Use `VPortAllocator` for compatibility with code that must use
+//!     `pvPortMalloc`.
+//!   - Use `TRACE` during development to find memory leaks.
+//!
+//! **What it takes:**
+//!   - `Caps` flags describing the required memory region.
+//!
+//! **Example:**
+//! ```zig
+//! const heap = idf.heap;
+//! var alloc_inst = heap.HeapCapsAllocator.init(heap.Caps.dma_caps);
+//! const allocator = alloc_inst.allocator();
+//! const buf = try allocator.alloc(u8, 1024);  // DMA-capable buffer
+//! defer allocator.free(buf);
+//!
+//! // SPIRAM allocator
+//! var spiram_alloc = heap.HeapCapsAllocator.init(heap.Caps.spiram_caps);
+//! ```
+
 const sys = @import("sys");
 const std = @import("std");
 const errors = @import("error");
@@ -27,6 +74,10 @@ const builtin = @import("builtin");
 //   21-30    (reserved)
 //   31       invalid
 // ---------------------------------------------------------------------------
+/// Capability bit-field matching `MALLOC_CAP_*` defines in `esp_heap_caps.h`.
+///
+/// Use named presets (`.default_caps`, `.dma_caps`, `.spiram_caps`, etc.)
+/// or set individual bits for fine-grained heap region selection.
 pub const Caps = packed struct(u32) {
     exec: bool = false, // bit  0  — requires CONFIG_HEAP_HAS_EXEC_HEAP
     @"32bit": bool = false, // bit  1
@@ -99,11 +150,16 @@ comptime {
 // HeapCapsAllocator
 // ---------------------------------------------------------------------------
 
+/// `std.mem.Allocator` backed by `heap_caps_aligned_alloc/realloc/free`.
+///
+/// Specify capability flags at construction time to control which memory
+/// region allocations come from (internal, DMA, SPIRAM, etc.).
 pub const HeapCapsAllocator = struct {
     caps: Caps = Caps.default_caps,
 
     const Self = @This();
 
+    /// Create an allocator instance targeting the given capability flags.
     pub fn init(caps: ?Caps) Self {
         return .{ .caps = caps orelse Caps.default_caps };
     }
@@ -120,15 +176,19 @@ pub const HeapCapsAllocator = struct {
         };
     }
 
+    /// Dump detailed heap block information (for debugging).
     pub fn dump(self: Self) void {
         sys.heap_caps_dump(self.caps.toRaw());
     }
+    /// Return the usable allocation size including alignment overhead.
     pub fn allocatedSize(_: Self, ptr: ?*anyopaque) usize {
         return sys.heap_caps_get_allocated_size(ptr);
     }
+    /// Return the largest contiguous free block in the matching regions.
     pub fn largestFreeBlock(self: Self) usize {
         return sys.heap_caps_get_largest_free_block(self.caps.toRaw());
     }
+    /// Return the total size of all matching heap regions.
     pub fn totalSize(self: Self) usize {
         return sys.heap_caps_get_total_size(self.caps.toRaw());
     }
@@ -138,6 +198,7 @@ pub const HeapCapsAllocator = struct {
     pub fn minimumFreeSize(self: Self) usize {
         return sys.heap_caps_get_minimum_free_size(self.caps.toRaw());
     }
+    /// Return the free internal (non-SPIRAM) heap size.
     pub fn internalFreeSize(_: Self) usize {
         return sys.esp_get_free_internal_heap_size();
     }
@@ -177,11 +238,13 @@ pub const HeapCapsAllocator = struct {
 // MultiHeapAllocator
 // ---------------------------------------------------------------------------
 
+/// `std.mem.Allocator` targeting a specific `multi_heap_handle_t` memory pool.
 pub const MultiHeapAllocator = struct {
     handle: sys.multi_heap_handle_t = null,
 
     const Self = @This();
 
+    /// Create an allocator for a specific multi-heap handle.
     pub fn init(handle: sys.multi_heap_handle_t) Self {
         return .{ .handle = handle };
     }
@@ -242,6 +305,9 @@ pub const MultiHeapAllocator = struct {
 // VPortAllocator
 // ---------------------------------------------------------------------------
 
+/// `std.mem.Allocator` using FreeRTOS `pvPortMalloc` / `vPortFree`.
+///
+/// Use this when interfacing with code that expects the FreeRTOS heap.
 pub const VPortAllocator = struct {
     const Self = @This();
 
@@ -292,34 +358,48 @@ pub const VPortAllocator = struct {
 // TRACE
 // ---------------------------------------------------------------------------
 
+/// Heap-trace leak detection helpers.
+///
+/// Use `initStandalone`, `start`/`stop`, then `dump` or `summary` to
+/// find memory leaks during development.
 pub const TRACE = struct {
+    /// Initialise standalone heap tracing with a pre-allocated record buffer.
     pub fn initStandalone(record_buffer: [*c]sys.heap_trace_record_t, num_records: usize) !void {
         try errors.espCheckError(sys.heap_trace_init_standalone(record_buffer, num_records));
     }
+    /// Initialise heap tracing in host-stream mode (SystemView etc.).
     pub fn initTohost() !void {
         try errors.espCheckError(sys.heap_trace_init_tohost());
     }
+    /// Start recording heap allocations.
     pub fn start(mode: sys.heap_trace_mode_t) !void {
         try errors.espCheckError(sys.heap_trace_start(mode));
     }
+    /// Stop recording heap allocations.
     pub fn stop() !void {
         try errors.espCheckError(sys.heap_trace_stop());
     }
+    /// Resume recording after a `stop`.
     pub fn @"resume"() !void {
         try errors.espCheckError(sys.heap_trace_resume());
     }
+    /// Return the number of recorded trace entries.
     pub fn getCount() usize {
         return sys.heap_trace_get_count();
     }
+    /// Get a specific trace record by index.
     pub fn get(index: usize, record: [*c]sys.heap_trace_record_t) !void {
         try errors.espCheckError(sys.heap_trace_get(index, record));
     }
+    /// Print all trace records to the console.
     pub fn dump() void {
         sys.heap_trace_dump();
     }
+    /// Print trace records filtered by capability flags.
     pub fn dumpCaps(caps: Caps) void {
         sys.heap_trace_dump_caps(caps.toRaw());
     }
+    /// Retrieve a summary of traced allocations.
     pub fn summary(sum: [*c]sys.heap_trace_summary_t) !void {
         try errors.espCheckError(sys.heap_trace_summary(sum));
     }

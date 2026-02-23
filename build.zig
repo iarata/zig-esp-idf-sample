@@ -1,5 +1,50 @@
+//! # Build System Entry Point (`build.zig`)
+//!
+//! **What:** The Zig build script that integrates with ESP-IDF's CMake build
+//! system.  It compiles all project Zig code into a single relocatable object
+//! file (`app_zig.o`) that CMake links alongside the C/IDF components.
+//!
+//! **What it does:**
+//!   1. Selects the target from `espressif_targets` (RISC-V or Xtensa, based
+//!      on the compiler's capabilities).
+//!   2. Builds the app entry source (default: `main/app.zig`) as an object
+//!      artifact.
+//!   3. Wires three project-level modules:
+//!        - `esp_idf` — the umbrella module (all drivers, RTOS, etc.).
+//!        - `display_touch` — AMOLED display + touch bring-up library.
+//!        - `app_ui` — lightweight LVGL UI helpers.
+//!   4. Installs the object into `zig-out/obj/` where CMake picks it up.
+//!
+//! **How:**
+//!   - `idf_wrapped_modules(b)` creates every subsystem module (gpio, i2c,
+//!     wifi, rtos, etc.) with correct inter-module imports, then returns
+//!     the aggregate `esp_idf` module.
+//!   - Target detection auto-selects between generic RISC-V targets
+//!     (ESP32-C2/C3/C6/H2) and Xtensa targets (ESP32/S2/S3) depending on
+//!     whether the LLVM fork supports Xtensa.
+//!   - `hasEspXtensaSupport()` probes the compiler at comptime.
+//!
+//! **When to modify:**
+//!   - Adding a new import module — create the file in `imports/`, add a
+//!     `b.addModule(...)` call, and wire it into the `esp_idf` module's
+//!     `.imports` array.
+//!   - Adding a new app source file — use `-Dapp_source=path/to/file.zig`.
+//!   - Adding a new library module — create it under `main/lib/`, add a
+//!     `b.createModule(...)`, and `addImport` it to `obj.root_module`.
+//!
+//! **Example (command-line):**
+//! ```sh
+//! # Build with default app.zig:
+//! zig build
+//!
+//! # Build with an alternate entry point:
+//! zig build -Dapp_source=main/examples/wifi-station.zig
+//! ```
+
 const std = @import("std");
 
+/// Produces one object artifact with all project-specific imports prewired so
+/// ESP-IDF can link Zig code without each app repeating module setup.
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{
         .whitelist = espressif_targets,
@@ -46,6 +91,8 @@ pub fn build(b: *std.Build) !void {
     b.getInstallStep().dependOn(&obj_install.step);
 }
 
+/// Builds the aggregate `esp_idf` module once, centralizing import topology
+/// and version/patch glue in a single place for every app target.
 pub fn idf_wrapped_modules(b: *std.Build) *std.Build.Module {
     const src_path = std.fs.path.dirname(@src().file) orelse b.pathResolve(&.{"."});
     const sys = b.addModule("sys", .{

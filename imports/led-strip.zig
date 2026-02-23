@@ -1,16 +1,67 @@
+//! # LED Strip Wrapper (`led`)
+//!
+//! **What:** Zig wrapper for the Espressif `led_strip` managed component,
+//! supporting WS2812, SK6812, WS2811, and WS2816 addressable LED strips with
+//! RMT or SPI backends.
+//!
+//! **Prerequisite:** `idf.py add-dependency espressif/led_strip`
+//!
+//! **What it does:**
+//!   - **Config structs** — `LedStripConfig`, `LedStripRmtConfig`,
+//!     `LedStripSpiConfig` with builder helpers for common defaults.
+//!   - `newRmtDevice(strip_cfg, rmt_cfg, &handle)` — creates an RMT-backed
+//!     strip (most common for WS2812 on ESP32-S3).
+//!   - `newSpiDevice(strip_cfg, spi_cfg, &handle)` — SPI-backed alternative
+//!     (useful when RMT channels are exhausted).
+//!   - `setPixel(strip, index, r, g, b)` — set one RGB pixel.
+//!   - `setPixelRgbw(strip, index, r, g, b, w)` — set one RGBW pixel.
+//!   - `setPixelHsv(strip, index, hue, sat, val)` — HSV convenience.
+//!   - `refresh(strip)` — push all buffered pixel data to the physical strip.
+//!   - `clear(strip)` — turn all LEDs off.
+//!   - `deinit(strip)` — release hardware resources.
+//!
+//! **How:** `LedStripConfig` and `LedStripRmtConfig` are Zig-side `extern
+//! struct`s that mirror the C component layout.  They are `@ptrCast`ed to
+//! the C types.  All C errors go through `espCheckError`.
+//!
+//! **When to use:** Status LEDs, RGB indicators, NeoPixel/SK6812 strips.
+//!
+//! **What it takes:**
+//!   - GPIO number for the data pin.
+//!   - Number of LEDs.
+//!   - LED model (WS2812, SK6812, etc.).
+//!
+//! **Example:**
+//! ```zig
+//! const led = idf.led;
+//! var strip_cfg = led.LedStripConfig.ws2812(48, 1);  // GPIO 48, 1 LED
+//! var rmt_cfg = led.LedStripRmtConfig.default;        // 10 MHz RMT clock
+//! var handle: led.LedStripHandle = null;
+//! _ = try led.newRmtDevice(&strip_cfg, &rmt_cfg, &handle);
+//! try led.setPixel(handle, 0, 255, 0, 0);             // red
+//! try led.refresh(handle);
+//! ```
+
 // requires: idf.py add-dependency espressif/led_strip
 const sys = @import("sys");
 const errors = @import("error");
 
+/// Supported addressable LED IC models.
 pub const LedModel = enum(sys.led_model_t) {
+    /// WS2812 (most common NeoPixel-compatible).
     ws2812 = sys.LED_MODEL_WS2812,
+    /// SK6812 (common RGBW model).
     sk6812 = sys.LED_MODEL_SK6812,
+    /// WS2811.
     ws2811 = sys.LED_MODEL_WS2811,
+    /// WS2816 (16-bit colour depth).
     ws2816 = sys.LED_MODEL_WS2816,
     invalid = sys.LED_MODEL_INVALID,
 };
+/// Opaque handle to a configured LED strip.
 pub const LedStripHandle = sys.led_strip_handle_t;
 
+/// Sub-pixel colour component ordering and byte width.
 pub const ColorComponentFormat = extern union {
     format: packed struct {
         r_pos: u2, // Position of the red channel in the color order: 0~3
@@ -23,12 +74,14 @@ pub const ColorComponentFormat = extern union {
     },
     format_id: u32,
 };
+/// Common pre-defined pixel format identifiers.
 pub const PixelFormat = enum(u32) {
     grb = 0x00, // default WS2812
     rgb = 0x01,
     grbw = 0x10,
     rgbw = 0x11,
 };
+/// LED strip configuration (GPIO, LED count, model, colour format).
 pub const LedStripConfig = extern struct {
     strip_gpio_num: i32,
     max_leds: u32,
@@ -50,6 +103,7 @@ pub const LedStripConfig = extern struct {
         return init(gpio, count, .ws2812, @intFromEnum(PixelFormat.grb));
     }
 };
+/// RMT backend configuration (clock source, resolution).
 pub const LedStripRmtConfig = struct {
     clk_src: sys.rmt_clock_source_t,
     resolution_hz: u32,
@@ -69,6 +123,7 @@ pub const LedStripRmtConfig = struct {
     // Very common setting in examples
     pub const default = init_10mhz();
 };
+/// SPI backend configuration (clock source, SPI bus).
 pub const LedStripSpiConfig = struct {
     clk_src: sys.spi_clock_source_t,
     spi_bus: sys.spi_host_device_t,

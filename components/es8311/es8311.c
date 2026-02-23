@@ -142,6 +142,8 @@ static const struct _coeff_div coeff_div[] = {
 
 static const char *TAG = "ES8311";
 
+// Centralized register helpers keep timeout policy and device addressing in one
+// place across all codec operations.
 static inline esp_err_t es8311_write_reg(es8311_handle_t dev, uint8_t reg_addr, uint8_t data)
 {
     es8311_dev_t *es = (es8311_dev_t *) dev;
@@ -149,6 +151,8 @@ static inline esp_err_t es8311_write_reg(es8311_handle_t dev, uint8_t reg_addr, 
     return i2c_master_write_to_device(es->port, es->dev_addr, write_buf, sizeof(write_buf), pdMS_TO_TICKS(1000));
 }
 
+// Read helper keeps register fetch behavior aligned with writes (same timeout,
+// addressing, and error surface).
 static inline esp_err_t es8311_read_reg(es8311_handle_t dev, uint8_t reg_addr, uint8_t *reg_value)
 {
     es8311_dev_t *es = (es8311_dev_t *) dev;
@@ -158,6 +162,8 @@ static inline esp_err_t es8311_read_reg(es8311_handle_t dev, uint8_t reg_addr, u
 /*
 * look for the coefficient in coeff_div[] table
 */
+// ES8311 accepts only specific divider combinations; table lookup makes
+// unsupported tuples explicit instead of silently approximating.
 static int get_coeff(uint32_t mclk, uint32_t rate)
 {
     for (int i = 0; i < (sizeof(coeff_div) / sizeof(coeff_div[0])); i++) {
@@ -169,6 +175,8 @@ static int get_coeff(uint32_t mclk, uint32_t rate)
     return -1;
 }
 
+// Keeps sample-rate changes deterministic by using known-good divider sets
+// instead of deriving dividers at runtime.
 esp_err_t es8311_sample_frequency_config(es8311_handle_t dev, int mclk_frequency, int sample_frequency)
 {
     uint8_t regv;
@@ -225,6 +233,8 @@ esp_err_t es8311_sample_frequency_config(es8311_handle_t dev, int mclk_frequency
     return ESP_OK;
 }
 
+// Handles the two supported clocking models (external MCLK vs SCK-derived MCLK)
+// before delegating to divider programming.
 static esp_err_t es8311_clock_config(es8311_handle_t dev, const es8311_clock_config_t *const clk_cfg, es8311_resolution_t res)
 {
     uint8_t reg06;
@@ -256,6 +266,7 @@ static esp_err_t es8311_clock_config(es8311_handle_t dev, const es8311_clock_con
     return es8311_sample_frequency_config(dev, mclk_hz, clk_cfg->sample_frequency);
 }
 
+// Isolates codec-specific bit encodings from call-sites that use enum values.
 static esp_err_t es8311_resolution_config(const es8311_resolution_t res, uint8_t *reg)
 {
     switch (res) {
@@ -280,6 +291,7 @@ static esp_err_t es8311_resolution_config(const es8311_resolution_t res, uint8_t
     return ESP_OK;
 }
 
+// Forces the known-good slave/I2S format used by this component.
 static esp_err_t es8311_fmt_config(es8311_handle_t dev, const es8311_resolution_t res_in, const es8311_resolution_t res_out)
 {
     uint8_t reg09 = 0; // SDP In
@@ -301,6 +313,8 @@ static esp_err_t es8311_fmt_config(es8311_handle_t dev, const es8311_resolution_
     return ESP_OK;
 }
 
+// Applies the baseline mic path expected by board examples; digital mic mode
+// is optional and toggled here to keep init sequence compact.
 esp_err_t es8311_microphone_config(es8311_handle_t dev, bool digital_mic)
 {
     uint8_t reg14 = 0x1A; // enable analog MIC and max PGA gain
@@ -314,6 +328,8 @@ esp_err_t es8311_microphone_config(es8311_handle_t dev, bool digital_mic)
     return es8311_write_reg(dev, ES8311_SYSTEM_REG14, reg14);
 }
 
+// Resets to known defaults, then programs only the non-default path needed for
+// predictable bring-up across boards.
 esp_err_t es8311_init(es8311_handle_t dev, const es8311_clock_config_t *const clk_cfg, const es8311_resolution_t res_in, const es8311_resolution_t res_out)
 {
     ESP_RETURN_ON_FALSE(
@@ -347,11 +363,13 @@ esp_err_t es8311_init(es8311_handle_t dev, const es8311_clock_config_t *const cl
     return ESP_OK;
 }
 
+// Handle is heap-backed by `es8311_create`.
 void es8311_delete(es8311_handle_t dev)
 {
     free(dev);
 }
 
+// Public API is percent-based; convert once here to codec register scale.
 esp_err_t es8311_voice_volume_set(es8311_handle_t dev, int volume, int *volume_set)
 {
     if (volume < 0) {
@@ -374,6 +392,7 @@ esp_err_t es8311_voice_volume_set(es8311_handle_t dev, int volume, int *volume_s
     return es8311_write_reg(dev, ES8311_DAC_REG32, reg32);
 }
 
+// Inverse mapping so logs/UI can stay in percent.
 esp_err_t es8311_voice_volume_get(es8311_handle_t dev, int *volume)
 {
     uint8_t reg32;
@@ -387,6 +406,7 @@ esp_err_t es8311_voice_volume_get(es8311_handle_t dev, int *volume)
     return ESP_OK;
 }
 
+// Read-modify-write avoids clobbering other DAC control bits.
 esp_err_t es8311_voice_mute(es8311_handle_t dev, bool mute)
 {
     uint8_t reg31;
@@ -401,11 +421,13 @@ esp_err_t es8311_voice_mute(es8311_handle_t dev, bool mute)
     return es8311_write_reg(dev, ES8311_DAC_REG31, reg31);
 }
 
+// Separate helper keeps mic gain changes independent from full init.
 esp_err_t es8311_microphone_gain_set(es8311_handle_t dev, es8311_mic_gain_t gain_db)
 {
     return es8311_write_reg(dev, ES8311_ADC_REG16, gain_db); // ADC gain scale up
 }
 
+// Fade parameters are packed in the high nibble; preserve low-nibble settings.
 esp_err_t es8311_voice_fade(es8311_handle_t dev, const es8311_fade_t fade)
 {
     uint8_t reg37;
@@ -415,6 +437,8 @@ esp_err_t es8311_voice_fade(es8311_handle_t dev, const es8311_fade_t fade)
     return es8311_write_reg(dev, ES8311_DAC_REG37, reg37);
 }
 
+// ADC fade uses the same high-nibble encoding as DAC fade; mirroring the logic
+// here keeps capture and playback controls behaviorally consistent.
 esp_err_t es8311_microphone_fade(es8311_handle_t dev, const es8311_fade_t fade)
 {
     uint8_t reg15;
@@ -424,6 +448,7 @@ esp_err_t es8311_microphone_fade(es8311_handle_t dev, const es8311_fade_t fade)
     return es8311_write_reg(dev, ES8311_ADC_REG15, reg15);
 }
 
+// Useful for comparing runtime state against datasheet defaults during bring-up.
 void es8311_register_dump(es8311_handle_t dev)
 {
     for (int reg = 0; reg < 0x4A; reg++) {
@@ -433,6 +458,8 @@ void es8311_register_dump(es8311_handle_t dev)
     }
 }
 
+// Opaque handle allocation keeps the public API stable if internal driver state
+// grows beyond port/address in the future.
 es8311_handle_t es8311_create(const i2c_port_t port, const uint16_t dev_addr)
 {
     es8311_dev_t *sensor = (es8311_dev_t *) calloc(1, sizeof(es8311_dev_t));

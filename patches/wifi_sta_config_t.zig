@@ -1,4 +1,13 @@
+//! # Wi-Fi Station Configuration Patch
+//!
+//! Restores a concrete `wifi_sta_config_t` layout compatible with the
+//! ESP-IDF Wi-Fi C API. The auto-translated version has broken bitfield
+//! structs for connection features and HE capabilities.
+
+/// Wi-Fi Station (STA) configuration: SSID, password, scan method,
+/// BSSID filtering, PMF, SAE, HE capabilities, and connection features.
 pub const wifi_sta_config_t = extern struct {
+    // Restores a concrete STA config layout compatible with IDF Wi-Fi APIs.
     ssid: [32]u8 = @import("std").mem.zeroes([32]u8),
     password: [64]u8 = @import("std").mem.zeroes([64]u8),
     scan_method: wifi_scan_method_t = @import("std").mem.zeroes(wifi_scan_method_t),

@@ -1,3 +1,31 @@
+//! # FT5x06 Touch Controller Example (`esp-lcd-touch-ft5x06.zig`)
+//!
+//! **What:** A controller-specific touch example that initialises the FT5x06
+//! and continuously logs raw touch coordinates using the low-level
+//! `esp_lcd_touch_get_coordinates` function.
+//!
+//! **What it does:**
+//!   1. Powers the board via AXP2101.
+//!   2. Gets the existing I²C master bus handle (requires AXP2101 to have
+//!      already initialised the bus).
+//!   3. Creates a panel-IO I²C channel and FT5x06 driver.
+//!   4. Polls `esp_lcd_touch_read_data` at 30 ms intervals and logs
+//!      x, y, and strength for any detected points.
+//!
+//! **How:** Build and flash with:
+//! ```sh
+//! zig build -Dapp_source=main/examples/esp-lcd-touch-ft5x06.zig
+//! idf.py flash monitor
+//! ```
+//!
+//! **When to use:** During FT5x06 bring-up to debug interrupt behaviour,
+//! I²C read failures, or unexpected coordinate ranges before using the
+//! higher-level core abstraction.
+//!
+//! **What it takes:**
+//!   - FT5x06 on I²C₀ (SDA=15, SCL=14), INT=GPIO 21.
+//!   - AXP2101 for rail enable and I²C bus setup.
+
 const std = @import("std");
 const builtin = @import("builtin");
 const idf = @import("esp_idf");
@@ -18,6 +46,8 @@ comptime {
     @export(&main, .{ .name = "app_main" });
 }
 
+/// In bring-up examples we fail fast on any ESP-IDF error so hardware is not
+/// left in a half-configured state that hides the root cause.
 fn espCheck(err: c.esp_err_t, comptime context: []const u8) void {
     idf.err.espCheckError(err) catch |check_err| {
         log.err("{s} failed: {s}", .{ context, @errorName(check_err) });
@@ -25,6 +55,8 @@ fn espCheck(err: c.esp_err_t, comptime context: []const u8) void {
     };
 }
 
+/// Uses the controller-specific API to debug FT5x06 behavior directly before
+/// introducing abstraction layers.
 fn main() callconv(.c) void {
     log.info("Enabling touch rails via AXP2101 (I2C{d})", .{TOUCH_I2C_PORT});
     espCheck(c.waveshare_axp2101_init(TOUCH_I2C_PORT, TOUCH_SDA, TOUCH_SCL, TOUCH_FREQ_HZ), "waveshare_axp2101_init");

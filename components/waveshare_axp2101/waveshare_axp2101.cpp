@@ -10,6 +10,8 @@ static i2c_master_dev_handle_t s_i2c_dev = nullptr;
 static uint8_t s_i2c_address = AXP2101_SLAVE_ADDRESS;
 static bool s_initialized = false;
 
+// XPowersLib expects C-style register callbacks; these adapters keep ESP-IDF
+// transport details local to this wrapper.
 static int pmu_register_read(uint8_t dev_addr, uint8_t reg_addr, uint8_t *data, uint8_t len)
 {
     if (data == nullptr || len == 0 || s_i2c_dev == nullptr || dev_addr != s_i2c_address) {
@@ -26,6 +28,7 @@ static int pmu_register_read(uint8_t dev_addr, uint8_t reg_addr, uint8_t *data, 
     return ret == ESP_OK ? 0 : -1;
 }
 
+// Matching write-side adapter for XPowersLib register access abstraction.
 static int pmu_register_write(uint8_t dev_addr, uint8_t reg_addr, uint8_t *data, uint8_t len)
 {
     if (data == nullptr || len == 0 || s_i2c_dev == nullptr || dev_addr != s_i2c_address) {
@@ -51,6 +54,8 @@ static int pmu_register_write(uint8_t dev_addr, uint8_t reg_addr, uint8_t *data,
     return ret == ESP_OK ? 0 : -1;
 }
 
+// Maintains a single PMU device handle because XPowersLib wrapper state is
+// static; allowing multiple handles would create ambiguous ownership.
 static esp_err_t ensure_i2c_bus(i2c_port_num_t port, gpio_num_t sda, gpio_num_t scl, uint32_t freq_hz)
 {
     if (freq_hz == 0) {
@@ -95,6 +100,8 @@ static esp_err_t ensure_i2c_bus(i2c_port_num_t port, gpio_num_t sda, gpio_num_t 
     return ESP_OK;
 }
 
+// Enables telemetry channels up front so `read_status` can stay side-effect
+// free and cheap.
 extern "C" esp_err_t waveshare_axp2101_init(i2c_port_num_t port, gpio_num_t sda, gpio_num_t scl, uint32_t freq_hz)
 {
     esp_err_t err = ensure_i2c_bus(port, sda, scl, freq_hz);
@@ -117,6 +124,8 @@ extern "C" esp_err_t waveshare_axp2101_init(i2c_port_num_t port, gpio_num_t sda,
     return ESP_OK;
 }
 
+// Encodes the board power tree defaults from the Waveshare schematic so higher
+// layers can request a known-good profile with one call.
 extern "C" esp_err_t waveshare_axp2101_apply_touch_amoled_1_8_defaults(void)
 {
     if (!s_initialized) {
@@ -182,6 +191,8 @@ extern "C" esp_err_t waveshare_axp2101_apply_touch_amoled_1_8_defaults(void)
     return ESP_OK;
 }
 
+// Returns a snapshot struct so application code doesn't need direct dependency
+// on XPowersLib classes.
 extern "C" esp_err_t waveshare_axp2101_read_status(waveshare_axp2101_status_t *out_status)
 {
     if (!s_initialized) {

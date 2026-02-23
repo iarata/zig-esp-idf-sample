@@ -1,3 +1,30 @@
+//! # Addressable RGB LED Strip Example (`smartled-rgb.zig`)
+//!
+//! **What:** Configures a WS2812-compatible LED strip using the `led_strip`
+//! component’s RMT backend and blinks all pixels on/off from a dedicated
+//! FreeRTOS task.
+//!
+//! **What it does:**
+//!   1. Creates a `LedStripConfig` for 24 LEDs (or 256 in DMA mode) on
+//!      GPIO 2, backed by the RMT peripheral.
+//!   2. Spawns a 4 KiB FreeRTOS task (`led_strip`) at priority 5.
+//!   3. The task alternates between setting all pixels to dim white (5,5,5)
+//!      and clearing them, with a 500 ms toggle interval.
+//!
+//! **How:** Build and flash with:
+//! ```sh
+//! zig build -Dapp_source=main/examples/smartled-rgb.zig
+//! idf.py flash monitor
+//! ```
+//!
+//! **When to use:** To verify strip signal integrity, GPIO mapping, and
+//! the RMT timing configuration for WS2812 / SK6812 LEDs.
+//!
+//! **What it takes:**
+//!   - A WS2812-compatible strip on GPIO 2.
+//!   - The `led_strip` managed component.
+//!   - Set `LED_STRIP_USE_DMA = true` for long strips (>256 LEDs).
+
 const std = @import("std");
 const builtin = @import("builtin");
 const idf = @import("esp_idf");
@@ -15,6 +42,8 @@ const LED_STRIP_LED_COUNT = if (LED_STRIP_USE_DMA) 256 else 24;
 const LED_STRIP_MEMORY_BLOCK_WORDS = if (LED_STRIP_USE_DMA) 1024 else 0;
 const LED_STRIP_GPIO_PIN = 2;
 
+/// Keeps strip backend choices in one function so pin/count/timing changes
+/// don't spread across task logic.
 fn configureLED() !led.LedStripHandle {
     // LED strip general initialization using wrapped types
     const strip_config = led.LedStripConfig.ws2812(LED_STRIP_GPIO_PIN, LED_STRIP_LED_COUNT);
@@ -35,6 +64,7 @@ fn configureLED() !led.LedStripHandle {
     return strip;
 }
 
+/// Dedicated task isolates timing-sensitive refresh calls from other app work.
 fn ledStripTask(led_strip_ptr: ?*anyopaque) callconv(.c) void {
     const led_strip: led.LedStripHandle = @ptrCast(@alignCast(led_strip_ptr.?));
     var led_on_off = false;
@@ -71,6 +101,8 @@ fn ledStripTask(led_strip_ptr: ?*anyopaque) callconv(.c) void {
     }
 }
 
+/// Spawns the LED task instead of blocking `app_main`, matching ESP-IDF's
+/// expectation that startup should return quickly after launching work.
 fn main() callconv(.c) void {
     log.info("LED Strip Example", .{});
 

@@ -1,3 +1,49 @@
+//! # Wi-Fi Driver Wrapper (`wifi`)
+//!
+//! **What:** Zig wrapper for the ESP-IDF Wi-Fi driver, covering station (STA),
+//! access-point (AP), and NAN modes plus scanning, power save, promiscuous
+//! mode, FTM, ESP-NOW, and enterprise (802.1X) authentication.
+//!
+//! **What it does (grouped by namespace):**
+//!   - `init` / `deinit` / `start` / `stop` / `connect` / `disconnect` —
+//!     full Wi-Fi lifecycle.
+//!   - `setMode` / `setConfig` / `setStorage` — mode and credential setup.
+//!   - `Scan.*` — active/passive scan helpers and AP record retrieval.
+//!   - `PowerSave.*` — get/set power-save type.
+//!   - `Protocol.*` / `Bandwidth.*` / `Channel.*` / `Country.*` — radio
+//!     configuration.
+//!   - `MAC.*` / `Promiscuous.*` / `Vendor.*` — low-level frame control.
+//!   - `Station.*` — STA-specific queries (AP info, RSSI, AID, deauth).
+//!   - `FTM.*` — Fine Time Measurement sessions.
+//!   - `EspNow.*` — connectionless peer-to-peer data over Wi-Fi.
+//!   - `Enterprise.*` — WPA2/WPA3 Enterprise (EAP) credential helpers.
+//!   - `Internal.*` — low-level TX/RX buffer and netstack callbacks.
+//!   - `init_config_default()` — returns a fully populated
+//!     `wifi_init_config_t` matching current sdkconfig.
+//!
+//! **How:** Each function calls the matching `sys.esp_wifi_*` C function and
+//! converts `esp_err_t` → Zig error.
+//!
+//! **When to use:** Any networked application (HTTP client, MQTT, OTA, etc.).
+//! Not available on Wi-Fi-less targets (ESP32-H2, ESP32-H21, ESP32-H4,
+//! ESP32-P4) — the umbrella module emits a `@compileError` for those.
+//!
+//! **What it takes:**
+//!   - A `wifi_init_config_t` (use `init_config_default()`).
+//!   - A `wifi_config_t` with SSID/password for STA or AP.
+//!   - Appropriate event-loop and netif setup before calling `start()`.
+//!
+//! **Example:**
+//! ```zig
+//! const wifi = idf.wifi;
+//! var cfg = wifi.init_config_default();
+//! try wifi.init(&cfg);
+//! try wifi.setMode(.WIFI_MODE_STA);
+//! try wifi.setConfig(.WIFI_IF_STA, &sta_cfg);
+//! try wifi.start();
+//! try wifi.connect();
+//! ```
+
 const sys = @import("sys");
 const errors = @import("error");
 
@@ -12,6 +58,7 @@ pub const CONFIG_FEATURE_GMAC_BIT = 1 << 5;
 pub const CONFIG_FEATURE_11R_BIT = 1 << 6;
 pub const CONFIG_FEATURE_WIFI_ENT_BIT = 1 << 7;
 
+/// Wi-Fi feature capability bits used in `wifi_init_config_t`.
 pub const WIFI_FEATURE_CAPS =
     CONFIG_FEATURE_WPA3_SAE_BIT |
     CONFIG_FEATURE_CACHE_TX_BUF_BIT |
@@ -22,6 +69,7 @@ pub const WIFI_FEATURE_CAPS =
     CONFIG_FEATURE_11R_BIT |
     WIFI_ENABLE_ENTERPRISE;
 
+/// Wi-Fi operating mode.
 pub const wifi_mode_t = enum(sys.wifi_mode_t) {
     WIFI_MODE_NULL = sys.WIFI_MODE_NULL,
     WIFI_MODE_STA = sys.WIFI_MODE_STA,
@@ -30,17 +78,20 @@ pub const wifi_mode_t = enum(sys.wifi_mode_t) {
     WIFI_MODE_NAN = sys.WIFI_MODE_NAN,
     WIFI_MODE_MAX = sys.WIFI_MODE_MAX,
 };
+/// Wi-Fi network interface selector (STA, AP, NAN).
 pub const wifi_interface_t = enum(sys.wifi_interface_t) {
     WIFI_IF_STA = sys.WIFI_IF_STA,
     WIFI_IF_AP = sys.WIFI_IF_AP,
     WIFI_IF_NAN = sys.WIFI_IF_NAN,
     WIFI_IF_MAX = sys.WIFI_IF_MAX,
 };
+/// Country-code policy (auto or manual).
 pub const wifi_country_policy_t = enum(sys.wifi_country_policy_t) {
     WIFI_COUNTRY_POLICY_AUTO = sys.WIFI_COUNTRY_POLICY_AUTO,
     WIFI_COUNTRY_POLICY_MANUAL = sys.WIFI_COUNTRY_POLICY_MANUAL,
 };
 
+/// Initialise the Wi-Fi driver with the given init configuration.
 pub fn init(config: *const sys.wifi_init_config_t) !void {
     return try errors.espCheckError(sys.esp_wifi_init(config));
 }
@@ -56,34 +107,42 @@ pub fn setDefaultWifiNANHandlers() !void {
 pub fn clearDefaultWifiDriverHandlers(esp_netif: ?*anyopaque) !void {
     return try errors.espCheckError(sys.esp_wifi_clear_default_wifi_driver_and_handlers(esp_netif));
 }
+/// De-initialise the Wi-Fi driver and free resources.
 pub fn deinit() !void {
     return try errors.espCheckError(sys.esp_wifi_deinit());
 }
+/// Set the Wi-Fi operating mode (STA, AP, STA+AP, NAN).
 pub fn setMode(mode: wifi_mode_t) !void {
     return try errors.espCheckError(sys.esp_wifi_set_mode(@intFromEnum(mode)));
 }
 pub fn getMode(mode: [*]wifi_mode_t) !void {
     return try errors.espCheckError(sys.esp_wifi_get_mode(mode));
 }
+/// Start the Wi-Fi driver (must be called after `init` and `setConfig`).
 pub fn start() !void {
     return try errors.espCheckError(sys.esp_wifi_start());
 }
+/// Stop the Wi-Fi driver.
 pub fn stop() !void {
     return try errors.espCheckError(sys.esp_wifi_stop());
 }
 pub fn restore() !void {
     return try errors.espCheckError(sys.esp_wifi_restore());
 }
+/// Initiate connection to the configured AP (STA mode).
 pub fn connect() !void {
     return try errors.espCheckError(sys.esp_wifi_connect());
 }
+/// Disconnect from the current AP.
 pub fn disconnect() !void {
     return try errors.espCheckError(sys.esp_wifi_disconnect());
 }
 pub fn clearFastConnect() !void {
     return try errors.espCheckError(sys.esp_wifi_clear_fast_connect());
 }
+/// Wi-Fi AP/channel scanning helpers.
 pub const Scan = struct {
+    /// Start an active or passive scan. Set `block = true` for synchronous.
     pub fn start(config: [*c]const sys.wifi_scan_config_t, block: bool) !void {
         return try errors.espCheckError(sys.esp_wifi_scan_start(config, block));
     }
@@ -100,6 +159,7 @@ pub const Scan = struct {
         return try errors.espCheckError(sys.esp_wifi_scan_get_ap_record(ap_record));
     }
 };
+/// Power-save mode get/set.
 pub const PowerSave = struct {
     pub fn set(@"type": sys.wifi_ps_type_t) !void {
         return try errors.espCheckError(sys.esp_wifi_set_ps(@"type"));
@@ -108,6 +168,7 @@ pub const PowerSave = struct {
         return try errors.espCheckError(sys.esp_wifi_get_ps(@"type"));
     }
 };
+/// 802.11 protocol bitmap get/set per interface.
 pub const Protocol = struct {
     pub fn set(ifx: wifi_interface_t, protocol_bitmap: u8) !void {
         return try errors.espCheckError(sys.esp_wifi_set_protocol(ifx, protocol_bitmap));
@@ -116,6 +177,7 @@ pub const Protocol = struct {
         return try errors.espCheckError(sys.esp_wifi_get_protocol(ifx, protocol_bitmap));
     }
 };
+/// Channel bandwidth get/set per interface.
 pub const Bandwidth = struct {
     pub fn set(ifx: wifi_interface_t, bw: sys.wifi_bandwidth_t) !void {
         return try errors.espCheckError(sys.esp_wifi_set_bandwidth(ifx, bw));
@@ -124,6 +186,7 @@ pub const Bandwidth = struct {
         return try errors.espCheckError(sys.esp_wifi_get_bandwidth(ifx, bw));
     }
 };
+/// Primary and secondary channel selection.
 pub const Channel = struct {
     pub fn set(primary: u8, second: sys.wifi_second_chan_t) !void {
         return try errors.espCheckError(sys.esp_wifi_set_channel(primary, second));
@@ -132,6 +195,7 @@ pub const Channel = struct {
         return try errors.espCheckError(sys.esp_wifi_get_channel(primary, second));
     }
 };
+/// Country code / regulatory domain helpers.
 pub const Country = struct {
     pub fn set(country: [*c]const sys.wifi_country_t) !void {
         return try errors.espCheckError(sys.esp_wifi_set_country(country));
@@ -146,6 +210,7 @@ pub const Country = struct {
         return try errors.espCheckError(sys.esp_wifi_get_country_code(country));
     }
 };
+/// MAC address get/set per interface.
 pub const MAC = struct {
     pub fn set(ifx: wifi_interface_t, mac: [*:0]const u8) !void {
         return try errors.espCheckError(sys.esp_wifi_set_mac(ifx, mac));
@@ -154,6 +219,7 @@ pub const MAC = struct {
         return try errors.espCheckError(sys.esp_wifi_get_mac(ifx, mac));
     }
 };
+/// Promiscuous (monitor) mode control.
 pub const Promiscuous = struct {
     pub const promiscuous_callback_type = sys.wifi_promiscuous_cb_t;
     pub fn setRXCallback(cb: sys.wifi_promiscuous_cb_t) !void {
@@ -179,6 +245,7 @@ pub const Promiscuous = struct {
     }
 };
 pub const wifiConfig = sys.wifi_config_t;
+/// Apply a Wi-Fi configuration (SSID, password, auth mode, etc.) to an interface.
 pub fn setConfig(interface: wifi_interface_t, conf: ?*sys.wifi_config_t) !void {
     return try errors.espCheckError(sys.esp_wifi_set_config(@intFromEnum(interface), conf));
 }
@@ -188,6 +255,7 @@ pub fn getConfig(interface: wifi_interface_t, conf: ?*sys.wifi_config_t) !void {
 pub fn setStorage(storage: sys.wifi_storage_t) !void {
     return try errors.espCheckError(sys.esp_wifi_set_storage(storage));
 }
+/// Vendor Information Element helpers.
 pub const Vendor = struct {
     pub const vendor_ie_callback_id_type = sys.wifi_vendor_ie_id_t;
     pub fn setIE(enable: bool, @"type": sys.wifi_vendor_ie_type_t, idx: sys.wifi_vendor_ie_id_t, vnd_ie: ?*const anyopaque) !void {
@@ -249,6 +317,7 @@ pub fn statisDump(modules: u32) !void {
 pub fn setRssiThreshold(rssi: i32) !void {
     return try errors.espCheckError(sys.esp_wifi_set_rssi_threshold(rssi));
 }
+/// Fine Time Measurement (FTM) session control.
 pub const FTM = struct {
     pub fn initiateSession(cfg: [*c]sys.wifi_ftm_initiator_cfg_t) !void {
         return try errors.espCheckError(sys.esp_wifi_ftm_initiate_session(cfg));
@@ -281,7 +350,9 @@ pub fn disablePMFConfig(ifx: wifi_interface_t) !void {
 pub fn setDynCS(enabled: bool) !void {
     return try errors.espCheckError(sys.esp_wifi_set_dynamic_cs(enabled));
 }
+/// STA-specific query helpers (AP info, RSSI, AID, deauth).
 pub const Station = struct {
+    /// Get information about the AP the STA is connected to.
     pub fn getAPInfo(ap_info: ?*sys.wifi_ap_record_t) !void {
         return try errors.espCheckError(sys.esp_wifi_sta_get_ap_info(ap_info));
     }
@@ -310,16 +381,21 @@ pub const Station = struct {
     };
 };
 
+/// Wi-Fi power-domain on/off (shared with Bluetooth).
 pub const PowerDomain = struct {
+    /// Enable the Wi-Fi power domain.
     pub fn On() void {
         sys.esp_wifi_power_domain_on();
     }
+    /// Disable the Wi-Fi power domain.
     pub fn Off() void {
         sys.esp_wifi_power_domain_off();
     }
 };
 
+/// ESP-NOW connectionless peer-to-peer data protocol.
 pub const EspNow = struct {
+    /// Initialise ESP-NOW.
     pub fn init() !void {
         return try errors.espCheckError(sys.esp_now_init());
     }
@@ -377,6 +453,7 @@ pub const EspNow = struct {
     }
 };
 
+/// WPA2/WPA3 Enterprise (802.1X EAP) credential helpers.
 pub const Enterprise = struct {
     pub const Station = struct {
         pub fn enable() !void {
@@ -435,6 +512,7 @@ pub const Enterprise = struct {
     };
 };
 
+/// Low-level internal Wi-Fi TX/RX buffer and netstack callbacks.
 pub const Internal = struct {
     // STUBS
     pub fn setStationIp() !void {
@@ -455,6 +533,7 @@ pub const Internal = struct {
     }
 };
 
+/// Build a `wifi_init_config_t` from the current sdkconfig defaults.
 pub fn init_config_default() sys.wifi_init_config_t {
     return sys.wifi_init_config_t{
         .osi_funcs = &sys.g_wifi_osi_funcs,

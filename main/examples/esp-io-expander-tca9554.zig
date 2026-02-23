@@ -1,3 +1,27 @@
+//! # TCA9554 I²C GPIO Expander Example (`esp-io-expander-tca9554.zig`)
+//!
+//! **What:** Demonstrates the ESP-IDF IO expander component with a TCA9554
+//! chip.  Configures pin P0 as output and toggles it every 500 ms.
+//!
+//! **What it does:**
+//!   1. Sets up the legacy I²C master on I²C₀ at 400 kHz.
+//!   2. Creates a `TCA9554` expander handle at address 0x20.
+//!   3. Sets P0 direction to output.
+//!   4. Loops forever, flipping P0 high/low with 500 ms delay.
+//!
+//! **How:** Build and flash with:
+//! ```sh
+//! zig build -Dapp_source=main/examples/esp-io-expander-tca9554.zig
+//! idf.py flash monitor
+//! ```
+//!
+//! **When to use:** To verify I²C bus health and confirm the TCA9554 responds
+//! before wiring it into more complex I/O routing.
+//!
+//! **What it takes:**
+//!   - A TCA9554 on I²C₀ (SDA=GPIO 15, SCL=GPIO 14, addr 0x20).
+//!   - The `esp_io_expander_tca9554` managed component.
+
 const std = @import("std");
 const builtin = @import("builtin");
 const idf = @import("esp_idf");
@@ -15,6 +39,8 @@ comptime {
     @export(&main, .{ .name = "app_main" });
 }
 
+/// In bring-up examples we fail fast on any ESP-IDF error so hardware is not
+/// left in a half-configured state that hides the root cause.
 fn espCheck(err: c.esp_err_t, comptime context: []const u8) void {
     idf.err.espCheckError(err) catch |check_err| {
         log.err("{s} failed: {s}", .{ context, @errorName(check_err) });
@@ -22,6 +48,8 @@ fn espCheck(err: c.esp_err_t, comptime context: []const u8) void {
     };
 }
 
+/// This sample uses the legacy I2C driver because the referenced expander API
+/// expects that initialization path.
 fn initLegacyI2cMaster() void {
     var conf = std.mem.zeroes(c.i2c_config_t);
     conf.mode = @as(c.i2c_mode_t, @intCast(c.I2C_MODE_MASTER));
@@ -39,6 +67,8 @@ fn initLegacyI2cMaster() void {
     }
 }
 
+/// Keeps behavior intentionally simple (single pin toggle) so failures map
+/// directly to bus wiring or direction configuration issues.
 fn main() callconv(.c) void {
     initLegacyI2cMaster();
 

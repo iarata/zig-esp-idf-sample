@@ -14,6 +14,8 @@ typedef struct {
 
 static pcf85063_i2c_ctx_t s_i2c_ctx[SOC_I2C_NUM];
 
+// Keeps multi-port state in one static table so repeated init/read calls don't
+// have to pass opaque context pointers around.
 static pcf85063_i2c_ctx_t *pcf85063_get_ctx(i2c_port_num_t port)
 {
     if (port < 0 || port >= SOC_I2C_NUM) {
@@ -22,16 +24,20 @@ static pcf85063_i2c_ctx_t *pcf85063_get_ctx(i2c_port_num_t port)
     return &s_i2c_ctx[port];
 }
 
+// PCF85063 calendar registers are BCD encoded; convert once at the boundary.
 static uint8_t bcd_to_dec(uint8_t value)
 {
     return ((value >> 4) * 10) + (value & 0x0F);
 }
 
+// Mirror conversion for writes so callers can stay in plain decimal fields.
 static uint8_t dec_to_bcd(uint8_t value)
 {
     return ((value / 10) << 4) | (value % 10);
 }
 
+// Reuses an existing bus when available so this driver can coexist with other
+// devices on the same I2C controller.
 esp_err_t pcf85063_init(i2c_port_num_t port, gpio_num_t sda, gpio_num_t scl, uint32_t freq_hz)
 {
     if (freq_hz == 0) {
@@ -79,6 +85,7 @@ esp_err_t pcf85063_init(i2c_port_num_t port, gpio_num_t sda, gpio_num_t scl, uin
     return ESP_OK;
 }
 
+// Central read helper keeps state validation and timeout policy consistent.
 esp_err_t pcf85063_read_reg(i2c_port_num_t port, uint8_t reg_addr, uint8_t *data, size_t len)
 {
     if (data == NULL || len == 0) {
@@ -102,6 +109,7 @@ esp_err_t pcf85063_read_reg(i2c_port_num_t port, uint8_t reg_addr, uint8_t *data
         I2C_TIMEOUT_MS);
 }
 
+// Multi-buffer write avoids temporary allocations for register+payload framing.
 esp_err_t pcf85063_write_reg(i2c_port_num_t port, uint8_t reg_addr, const uint8_t *data, size_t len)
 {
     if (data == NULL || len == 0) {
@@ -134,6 +142,8 @@ esp_err_t pcf85063_write_reg(i2c_port_num_t port, uint8_t reg_addr, const uint8_
         I2C_TIMEOUT_MS);
 }
 
+// Exposes decimal datetime fields so application code never has to reason
+// about RTC bit masks or BCD conversion.
 esp_err_t pcf85063_get_datetime(i2c_port_num_t port, pcf85063_datetime_t *out_datetime)
 {
     if (out_datetime == NULL) {
@@ -157,6 +167,7 @@ esp_err_t pcf85063_get_datetime(i2c_port_num_t port, pcf85063_datetime_t *out_da
     return ESP_OK;
 }
 
+// Writes the full calendar block atomically to avoid partially-updated time.
 esp_err_t pcf85063_set_datetime(i2c_port_num_t port, const pcf85063_datetime_t *datetime)
 {
     if (datetime == NULL) {

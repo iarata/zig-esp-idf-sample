@@ -9,6 +9,8 @@ static i2c_master_dev_handle_t s_i2c_dev = nullptr;
 static uint8_t s_i2c_address = 0;
 static bool s_ready = false;
 
+// SensorLib uses generic register callbacks; this bridge keeps ESP-IDF I2C
+// specifics out of the sensor logic.
 static int qmi_register_read(uint8_t dev_addr, uint8_t reg_addr, uint8_t *data, uint8_t len)
 {
     if (data == nullptr || len == 0 || s_i2c_dev == nullptr || dev_addr != s_i2c_address) {
@@ -25,6 +27,7 @@ static int qmi_register_read(uint8_t dev_addr, uint8_t reg_addr, uint8_t *data, 
     return ret == ESP_OK ? DEV_WIRE_NONE : DEV_WIRE_ERR;
 }
 
+// Write-side bridge for the same SensorLib callback contract.
 static int qmi_register_write(uint8_t dev_addr, uint8_t reg_addr, uint8_t *data, uint8_t len)
 {
     if (data == nullptr || len == 0 || s_i2c_dev == nullptr || dev_addr != s_i2c_address) {
@@ -50,6 +53,8 @@ static int qmi_register_write(uint8_t dev_addr, uint8_t reg_addr, uint8_t *data,
     return ret == ESP_OK ? DEV_WIRE_NONE : DEV_WIRE_ERR;
 }
 
+// Keeps a single static device binding so concurrent re-init attempts with
+// mismatched port/address fail loudly instead of corrupting shared state.
 static esp_err_t ensure_i2c_bus(i2c_port_num_t port,
                                 gpio_num_t sda,
                                 gpio_num_t scl,
@@ -100,6 +105,8 @@ static esp_err_t ensure_i2c_bus(i2c_port_num_t port,
     return ESP_OK;
 }
 
+// `init` always applies a known config profile so callers don't accidentally
+// read mixed defaults after a reset.
 extern "C" esp_err_t waveshare_qmi8658_init(i2c_port_num_t port,
                                             gpio_num_t sda,
                                             gpio_num_t scl,
@@ -120,6 +127,8 @@ extern "C" esp_err_t waveshare_qmi8658_init(i2c_port_num_t port,
     return waveshare_qmi8658_config_default();
 }
 
+// Chooses conservative defaults intended for stable demo output rather than
+// maximum bandwidth.
 extern "C" esp_err_t waveshare_qmi8658_config_default(void)
 {
     if (!s_ready) {
@@ -144,6 +153,7 @@ extern "C" esp_err_t waveshare_qmi8658_config_default(void)
     return ESP_OK;
 }
 
+// Data-ready gate avoids returning repeated stale samples between sensor ticks.
 extern "C" bool waveshare_qmi8658_data_ready(void)
 {
     if (!s_ready) {
@@ -152,6 +162,8 @@ extern "C" bool waveshare_qmi8658_data_ready(void)
     return s_qmi.getDataReady();
 }
 
+// Keeps callers on one "read sample" API so transport and SensorLib call order
+// can evolve without touching application code.
 extern "C" esp_err_t waveshare_qmi8658_read_sample(waveshare_qmi8658_sample_t *out_sample)
 {
     if (!s_ready) {

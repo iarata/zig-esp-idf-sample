@@ -1,4 +1,13 @@
+//! # Wi-Fi Access Point Configuration Patch
+//!
+//! Restores a concrete `wifi_ap_config_t` layout compatible with the
+//! ESP-IDF Wi-Fi C API. The auto-translated version has broken bitfield
+//! structs that are demoted to opaque types.
+
+/// Wi-Fi Access Point (SoftAP) configuration: SSID, password, channel,
+/// authentication mode, PMF, SAE, and connection limits.
 pub const wifi_ap_config_t = extern struct {
+    // Restores a concrete AP config layout compatible with IDF Wi-Fi APIs.
     ssid: [32]u8 = @import("std").mem.zeroes([32]u8),
     password: [64]u8 = @import("std").mem.zeroes([64]u8),
     ssid_len: u8 = 0,

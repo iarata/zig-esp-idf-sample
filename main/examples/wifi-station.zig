@@ -1,3 +1,36 @@
+//! # Wi-Fi Station Mode Example (`wifi-station.zig`)
+//!
+//! **What:** A complete Wi-Fi STA connection example with NVS, event-loop
+//! integration, retry logic (up to 5 attempts), and DHCP-based IP reporting.
+//!
+//! **What it does:**
+//!   1. Initialises NVS (erasing if partition layout changed).
+//!   2. Creates a `WifiContext` with an RTOS event group for syncing.
+//!   3. Registers event handlers for `WIFI_EVENT` and `IP_EVENT`.
+//!   4. Configures STA mode with SSID/password from Kconfig
+//!      (`CONFIG_ESP_WIFI_SSID`, `CONFIG_ESP_WIFI_PASSWORD`).
+//!   5. Starts Wi-Fi and blocks on `xEventGroupWaitBits` until
+//!      `CONNECTED` or `FAILED` is set (30 s timeout).
+//!   6. Logs the assigned IP address on success, or an error after
+//!      exhausting retries.
+//!
+//! **How:** Build and flash with:
+//! ```sh
+//! # Set Wi-Fi credentials via menuconfig first:
+//! idf.py menuconfig   # → Example Configuration → WiFi SSID / Password
+//! zig build -Dapp_source=main/examples/wifi-station.zig
+//! idf.py flash monitor
+//! ```
+//!
+//! **When to use:** As the baseline for any connected application.  The
+//! event-group pattern, retry logic, and clean shutdown serve as a
+//! production-ready template.
+//!
+//! **What it takes:**
+//!   - A 2.4 GHz AP within range.
+//!   - `CONFIG_ESP_WIFI_SSID` / `CONFIG_ESP_WIFI_PASSWORD` set in Kconfig.
+//!   - NVS partition in the partition table.
+
 const std = @import("std");
 const builtin = @import("builtin");
 const idf = @import("esp_idf");
@@ -18,6 +51,8 @@ const WifiContext = struct {
     event_group: sys.EventGroupHandle_t,
     retry_count: u32,
 
+    /// Event groups provide a simple bridge from async ESP-IDF callbacks to the
+    /// linear "wait for result" flow used by this example.
     fn init(allocator: std.mem.Allocator) !WifiContext {
         const event_group = sys.xEventGroupCreate() orelse return error.EventGroupCreateFailed;
 
@@ -28,6 +63,7 @@ const WifiContext = struct {
         };
     }
 
+    /// Prevents leaking RTOS objects across repeated init attempts.
     fn deinit(self: *WifiContext) void {
         if (self.event_group) |group| {
             sys.vEventGroupDelete(group);
@@ -37,6 +73,8 @@ const WifiContext = struct {
 
 var wifi_context: ?*WifiContext = null;
 
+/// Keeps startup deterministic: allocate once, initialize storage, then run a
+/// single station-connect flow with clear success/failure logging.
 export fn app_main() callconv(.c) void {
     const heap = std.heap.c_allocator;
     var arena = std.heap.ArenaAllocator.init(heap);
@@ -62,7 +100,8 @@ export fn app_main() callconv(.c) void {
     log.info("WiFi initialization complete", .{});
 }
 
-/// Initialize Non-Volatile Storage
+/// Handles the two expected NVS recovery states so first boot after partition
+/// layout changes does not require manual erase.
 fn initNvs() !void {
     var ret = sys.nvs_flash_init();
 
@@ -74,7 +113,7 @@ fn initNvs() !void {
     try idf.err.espCheckError(ret);
 }
 
-/// Format IP address to string (allocates)
+/// Centralizes the IP formatting quirk (`ip.addr` is little-endian u32).
 fn ipToString(allocator: std.mem.Allocator, ip: u32) ![]const u8 {
     return std.fmt.allocPrint(allocator, "{d}.{d}.{d}.{d}", .{
         @as(u8, @intCast(ip & 0xFF)),
@@ -84,13 +123,15 @@ fn ipToString(allocator: std.mem.Allocator, ip: u32) ![]const u8 {
     });
 }
 
+/// Avoids accidental non-terminated SSID/password buffers passed to C APIs.
 fn copyStringToArray(dest: []u8, src: []const u8) void {
     const len = @min(dest.len - 1, src.len);
     @memcpy(dest[0..len], src[0..len]);
     dest[len] = 0;
 }
 
-/// WiFi event handler callback
+/// ESP-IDF requires C callbacks, so this thin dispatcher reattaches type-safe
+/// Zig handlers through the shared context pointer.
 export fn wifiEventHandler(
     _: ?*anyopaque,
     event_base: sys.esp_event_base_t,
@@ -113,7 +154,8 @@ export fn wifiEventHandler(
     }
 }
 
-/// Handle WiFi-specific events
+/// Retries transient disconnects but eventually sets a failure bit so callers
+/// can stop waiting and surface a clear error.
 fn handleWifiEvent(ctx: *WifiContext, event_id: i32) !void {
     switch (event_id) {
         sys.WIFI_EVENT_STA_START => {
@@ -136,7 +178,7 @@ fn handleWifiEvent(ctx: *WifiContext, event_id: i32) !void {
     }
 }
 
-/// Handle IP-specific events
+/// Treats DHCP-assigned IP as the real "connected" milestone, not just link up.
 fn handleIpEvent(ctx: *WifiContext, event_id: i32, event_data: ?*anyopaque) !void {
     switch (event_id) {
         sys.IP_EVENT_STA_GOT_IP => {
@@ -154,7 +196,8 @@ fn handleIpEvent(ctx: *WifiContext, event_id: i32, event_data: ?*anyopaque) !voi
     }
 }
 
-/// Register event handlers for WiFi and IP events
+/// Registers only the events used by this flow to keep callback behavior easy
+/// to reason about during debugging.
 fn registerEventHandlers() !void {
     var instance_wifi: sys.esp_event_handler_instance_t = undefined;
     var instance_ip: sys.esp_event_handler_instance_t = undefined;
@@ -178,7 +221,7 @@ fn registerEventHandlers() !void {
     ));
 }
 
-/// Create WiFi configuration from SDK config
+/// Concentrates all Kconfig-to-driver mapping in one place to avoid drift.
 fn createWifiConfig() idf.wifi.wifiConfig {
     const ssid = sys.CONFIG_ESP_WIFI_SSID;
     const password = sys.CONFIG_ESP_WIFI_PASSWORD;
@@ -201,7 +244,8 @@ fn createWifiConfig() idf.wifi.wifiConfig {
     return config;
 }
 
-/// Initialize WiFi in station mode
+/// Runs Wi-Fi startup as an all-or-nothing transaction and blocks until an
+/// explicit CONNECTED or FAILED bit is observed.
 fn wifiInitStation(allocator: std.mem.Allocator) !void {
     // Create and initialize context
     var ctx = try WifiContext.init(allocator);

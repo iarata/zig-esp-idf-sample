@@ -1,6 +1,49 @@
+//! # HTTP Server & Client Wrapper (`http`)
+//!
+//! **What:** Zig wrappers for:
+//!   1. **`http_parser`** — the low-level HTTP/1.x parser bundled in ESP-IDF.
+//!   2. **`httpd` (HTTP server)** — lightweight embedded web server with
+//!      request routing, session management, and WebSocket support.
+//!   3. **`esp_http_client`** — outbound HTTP/HTTPS client with GET/POST,
+//!      headers, auth, redirect, and chunked transfer.
+//!
+//! **What it does (by namespace):**
+//!   - `Parser.*` — `init`, `execute`, `parseUrl`, `pause` for manual HTTP
+//!     frame parsing.
+//!   - `Server.Session.*` — per-connection session context, receive/send
+//!     override, LRU, trigger close.
+//!   - `Server.Request.*` — extract headers, query strings, cookies, and
+//!     request body from an `httpd_req_t`.
+//!   - `Server.Response.*` — send complete responses, chunked responses,
+//!     set status/type/header, and send standard error codes (404/408/500).
+//!   - `Client.Set/Get.*` — configure URL, headers, auth, method, timeout,
+//!     and user-data on an `esp_http_client_handle_t`.
+//!   - `Client.perform` — execute a blocking HTTP request.
+//!
+//! **How:** Each helper calls the matching `sys.httpd_*` or
+//! `sys.esp_http_client_*` function and converts `esp_err_t` to Zig error.
+//!
+//! **When to use:**
+//!   - **Server:** device configuration portals, REST APIs, OTA upload
+//!     endpoints.
+//!   - **Client:** REST API calls, cloud telemetry, firmware update checks.
+//!
+//! **What it takes:**
+//!   - Server: register `httpd_uri_t` handlers via `httpd_register_uri_handler`.
+//!   - Client: build an `esp_http_client_config_t` with URL/TLS/auth.
+//!
+//! **Example (server):**
+//! ```zig
+//! fn handler(req: [*c]sys.httpd_req_t) callconv(.c) sys.esp_err_t {
+//!     try idf.http.Server.Response.send(req, "OK", 2);
+//!     return sys.ESP_OK;
+//! }
+//! ```
+
 const sys = @import("sys");
 const errors = @import("error");
 
+/// Low-level HTTP/1.x parser wrappers.
 pub const Parser = struct {
     pub const version = sys.http_parser_version;
     pub const init = sys.http_parser_init;
@@ -16,7 +59,9 @@ pub const errnoName = sys.http_errno_name;
 pub const errnoDescription = sys.http_errno_description;
 pub const bodyIsFinal = sys.http_body_is_final;
 
+/// HTTP server (httpd) wrappers.
 pub const Server = struct {
+    /// Per-connection session management.
     pub const Session = struct {
         pub fn setReceiveOverride(hd: sys.httpd_handle_t, sockfd: c_int, recv_func: sys.httpd_recv_func_t) !void {
             return try errors.espCheckError(sys.httpd_sess_set_recv_override(hd, sockfd, recv_func));
@@ -38,6 +83,7 @@ pub const Server = struct {
         pub const getTransportContext = sys.httpd_sess_get_transport_ctx;
         pub const setTransportContext = sys.httpd_sess_set_transport_ctx;
     };
+    /// Incoming request inspection helpers.
     pub const Request = struct {
         pub fn asyncHandlerBegin(r: [*c]sys.httpd_req_t, out: [*c][*c]sys.httpd_req_t) !void {
             return try errors.espCheckError(sys.httpd_req_async_handler_begin(r, out));
@@ -63,10 +109,13 @@ pub const Server = struct {
         return try errors.espCheckError(sys.httpd_query_key_value(qry, key, val, val_size));
     }
     pub const uri_MatchWildcard = sys.httpd_uri_match_wildcard;
+    /// HTTP response sending helpers.
     pub const Response = struct {
+        /// Send a complete HTTP response body.
         pub fn send(r: [*c]sys.httpd_req_t, buf: [*:0]const u8, buf_len: isize) !void {
             return try errors.espCheckError(sys.httpd_resp_send(r, buf, buf_len));
         }
+        /// Send a chunk of a chunked HTTP response.
         pub fn sendChunk(r: [*c]sys.httpd_req_t, buf: [*:0]const u8, buf_len: isize) !void {
             return try errors.espCheckError(sys.httpd_resp_send_chunk(r, buf, buf_len));
         }
@@ -114,27 +163,36 @@ pub const Server = struct {
     }
 };
 
+/// Outbound HTTP/HTTPS client wrappers.
 pub const Client = struct {
     c_config: sys.esp_http_client_config_t = null,
 
+    /// Initialise the HTTP client from a configuration struct.
     pub fn init(config: [*c]const sys.esp_http_client_config_t) Client {
         return .{
             .c_config = sys.esp_http_client_init(config),
         };
     }
+    /// Getters for client configuration fields.
+    /// Getters for client configuration fields.
     pub const Get = struct {
+        /// Get the client's configured URL.
         pub fn url(client: sys.esp_http_client_handle_t, _url: [*:0]const u8) !void {
             return try errors.espCheckError(sys.esp_http_client_get_url(client, _url));
         }
+        /// Get the POST field data.
         pub fn postField(client: sys.esp_http_client_handle_t, data: [*:0]const u8) !void {
             return try errors.espCheckError(sys.esp_http_client_get_post_field(client, data, @import("std").mem.len(data)));
         }
+        /// Get a response header value.
         pub fn header(client: sys.esp_http_client_handle_t, field: [*:0]const u8, value: [*:0]const u8) !void {
             return try errors.espCheckError(sys.esp_http_client_get_header(client, field, value));
         }
+        /// Get the configured username.
         pub fn username(client: sys.esp_http_client_handle_t, _username: [*:0]const u8) !void {
             return try errors.espCheckError(sys.esp_http_client_get_username(client, _username));
         }
+        /// Get the configured password.
         pub fn password(client: sys.esp_http_client_handle_t, _password: [*:0]const u8) !void {
             return try errors.espCheckError(sys.esp_http_client_get_password(client, _password));
         }
@@ -142,22 +200,30 @@ pub const Client = struct {
             return try errors.espCheckError(sys.esp_http_client_get_user_data(client, user_data));
         }
     };
+    /// Setters for client configuration fields.
+    /// Setters for client configuration fields.
     pub const Set = struct {
+        /// Set the request URL.
         pub fn url(client: sys.esp_http_client_handle_t, _url: [*:0]const u8) !void {
             return try errors.espCheckError(sys.esp_http_client_set_url(client, _url));
         }
+        /// Set the POST body data.
         pub fn postField(client: sys.esp_http_client_handle_t, data: [*:0]const u8) !void {
             return try errors.espCheckError(sys.esp_http_client_set_post_field(client, data, @import("std").mem.len(data)));
         }
+        /// Set a request header field.
         pub fn header(client: sys.esp_http_client_handle_t, field: [*:0]const u8, value: [*:0]const u8) !void {
             return try errors.espCheckError(sys.esp_http_client_set_header(client, field, value));
         }
+        /// Set HTTP basic/digest auth username.
         pub fn username(client: sys.esp_http_client_handle_t, _username: [*:0]const u8) !void {
             return try errors.espCheckError(sys.esp_http_client_set_username(client, _username));
         }
+        /// Set HTTP basic/digest auth password.
         pub fn password(client: sys.esp_http_client_handle_t, _password: [*:0]const u8) !void {
             return try errors.espCheckError(sys.esp_http_client_set_password(client, _password));
         }
+        /// Set the HTTP method (GET, POST, PUT, DELETE, etc.).
         pub fn method(client: sys.esp_http_client_handle_t, _method: sys.esp_http_method_t) !void {
             return try errors.espCheckError(sys.esp_http_client_set_method(client, _method));
         }
@@ -177,6 +243,7 @@ pub const Client = struct {
             return try errors.espCheckError(sys.esp_http_client_set_redirection(client));
         }
     };
+    /// Execute a blocking HTTP request (GET, POST, etc.).
     pub fn perform(client: sys.esp_http_client_handle_t) !void {
         return try errors.espCheckError(sys.esp_http_client_perform(client));
     }

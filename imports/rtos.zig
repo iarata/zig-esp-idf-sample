@@ -1,3 +1,56 @@
+//! # FreeRTOS Wrapper Layer (`rtos`)
+//!
+//! **What:** Comprehensive Zig-friendly wrappers for the FreeRTOS kernel
+//! primitives used by ESP-IDF: tasks, queues, semaphores/mutexes, software
+//! timers, event groups, stream/message buffers, ring buffers, and hooks.
+//!
+//! **What it does:**
+//!   - **Task** — create (pinned or any-core), delete, delay, suspend/resume,
+//!     priority, direct-to-task notifications, stack high-water mark, TLS.
+//!   - **Queue** — create, send/receive (blocking & ISR-safe), peek, overwrite.
+//!   - **Semaphore** — binary, counting, mutex, recursive mutex (create, take,
+//!     give, ISR variants).  All backed by FreeRTOS queue internals.
+//!   - **Timer** — one-shot and auto-reload software timers with start/stop/
+//!     reset/changePeriod/delete, plus `pendFunctionCall` for deferred work.
+//!   - **EventGroup** — event-flag synchronisation with waitBits, setBits,
+//!     clearBits, sync.
+//!   - **StreamBuffer / MessageBuffer** — lightweight byte-stream and
+//!     length-framed inter-task channels.
+//!   - **RingBuffer** — ESP-IDF extension ring buffer (no-split, allow-split,
+//!     byte-buffer modes).
+//!   - **Hook** — register/deregister idle and tick callbacks per core.
+//!   - Tick conversion helpers: `msToTicks`, `ticksToMs`.
+//!
+//! **How:** Each struct wraps the corresponding C API, converting FreeRTOS
+//! `pdTRUE`/`pdFALSE` returns into Zig `bool` or Zig errors.
+//!
+//! **When to use:** Any time you need concurrency, timing, or inter-task
+//! communication.  This is the default primitive layer for all app code.
+//!
+//! **What it takes:** Varies per primitive (see individual `create` functions).
+//!
+//! **Example:**
+//! ```zig
+//! const rtos = idf.rtos;
+//!
+//! // Create a task on core 0
+//! _ = try rtos.Task.createPinnedToCore(myTask, "worker", 4096, null, 5, 0);
+//!
+//! // Delay 1 second
+//! rtos.Task.delayMs(1000);
+//!
+//! // Binary semaphore
+//! const sem = try rtos.Semaphore.createBinary();
+//! if (rtos.Semaphore.take(sem, rtos.portMAX_DELAY)) {
+//!     // critical section
+//!     _ = rtos.Semaphore.give(sem);
+//! }
+//!
+//! // Software timer (1 Hz)
+//! const tmr = try rtos.Timer.create("tick", rtos.msToTicks(1000), true, null, onTick);
+//! _ = rtos.Timer.start(tmr, 0);
+//! ```
+
 const sys = @import("sys");
 const errors = @import("error");
 
@@ -5,18 +58,30 @@ const errors = @import("error");
 // Type aliases — use these instead of raw C types at call sites.
 // ---------------------------------------------------------------------------
 
+/// FreeRTOS task handle.
 pub const TaskHandle = sys.TaskHandle_t;
+/// FreeRTOS queue handle.
 pub const QueueHandle = sys.QueueHandle_t;
+/// FreeRTOS semaphore/mutex handle (alias for queue handle).
 pub const SemaphoreHandle = sys.QueueHandle_t;
+/// FreeRTOS software timer handle.
 pub const TimerHandle = sys.TimerHandle_t;
+/// FreeRTOS event group handle.
 pub const EventGroupHandle = sys.EventGroupHandle_t;
+/// FreeRTOS stream/message buffer handle.
 pub const StreamBufferHandle = sys.StreamBufferHandle_t;
+/// ESP-IDF ring buffer handle.
 pub const RingbufHandle = sys.RingbufHandle_t;
+/// Tick count type.
 pub const TickType = sys.TickType_t;
+/// Signed FreeRTOS base type.
 pub const BaseType = sys.BaseType_t;
+/// Unsigned FreeRTOS base type.
 pub const UBaseType = sys.UBaseType_t;
 
+/// Wait indefinitely (maximum tick count).
 pub const portMAX_DELAY = sys.portMAX_DELAY;
+/// Milliseconds per tick (from FreeRTOS config).
 pub const portTICK_PERIOD_MS = sys.portTICK_PERIOD_MS;
 
 // ---------------------------------------------------------------------------
@@ -42,6 +107,7 @@ inline fn pdOK(ret: BaseType) bool {
 // Task
 // ---------------------------------------------------------------------------
 
+/// FreeRTOS task creation, lifecycle, and notification helpers.
 pub const Task = struct {
     pub const Handle = TaskHandle;
     pub const Function = sys.TaskFunction_t;
@@ -210,6 +276,7 @@ pub const Task = struct {
 // Queue
 // ---------------------------------------------------------------------------
 
+/// FreeRTOS queue (FIFO) for inter-task communication.
 pub const Queue = struct {
     pub const Handle = QueueHandle;
 
@@ -288,6 +355,9 @@ pub const Queue = struct {
 // Semaphore
 // ---------------------------------------------------------------------------
 
+/// FreeRTOS semaphore and mutex primitives.
+///
+/// Supports binary, counting, mutex, and recursive-mutex variants.
 pub const Semaphore = struct {
     pub const Handle = SemaphoreHandle;
 
@@ -382,6 +452,7 @@ pub const Semaphore = struct {
 // Timer
 // ---------------------------------------------------------------------------
 
+/// FreeRTOS software timer (one-shot or auto-reload).
 pub const Timer = struct {
     pub const Handle = TimerHandle;
     pub const Callback = sys.TimerCallbackFunction_t;
@@ -475,6 +546,7 @@ pub const Timer = struct {
 // EventGroup
 // ---------------------------------------------------------------------------
 
+/// FreeRTOS event-group synchronisation primitive.
 pub const EventGroup = struct {
     pub const Handle = EventGroupHandle;
     pub const Bits = sys.EventBits_t;
@@ -534,6 +606,7 @@ pub const EventGroup = struct {
 // StreamBuffer
 // ---------------------------------------------------------------------------
 
+/// Byte-stream inter-task channel (FreeRTOS stream buffer).
 pub const StreamBuffer = struct {
     pub const Handle = StreamBufferHandle;
 
@@ -600,6 +673,7 @@ pub const StreamBuffer = struct {
 // MessageBuffer (thin wrapper over StreamBuffer with a 4-byte length header).
 // ---------------------------------------------------------------------------
 
+/// Length-framed inter-task message channel (FreeRTOS message buffer).
 pub const MessageBuffer = struct {
     pub const Handle = StreamBufferHandle;
 
@@ -629,6 +703,7 @@ pub const MessageBuffer = struct {
 // RingBuffer (ESP-IDF extension)
 // ---------------------------------------------------------------------------
 
+/// ESP-IDF ring buffer (no-split, allow-split, byte-buffer modes).
 pub const RingBuffer = struct {
     pub const Handle = RingbufHandle;
     pub const Type = sys.RingbufferType_t;
@@ -701,7 +776,9 @@ pub const RingBuffer = struct {
 // Hook (idle/tick callbacks)
 // ---------------------------------------------------------------------------
 
+/// FreeRTOS idle and tick hook registration/deregistration.
 pub const Hook = struct {
+    /// Register idle or tick callbacks.
     pub const Register = struct {
         pub fn idleForCPU(cb: sys.esp_freertos_idle_cb_t, cpu_id: UBaseType) !void {
             try errors.espCheckError(sys.esp_register_freertos_idle_hook_for_cpu(cb, cpu_id));
@@ -717,6 +794,7 @@ pub const Hook = struct {
         }
     };
 
+    /// Deregister idle or tick callbacks.
     pub const Deregister = struct {
         pub fn idleForCPU(cb: sys.esp_freertos_idle_cb_t, cpu_id: UBaseType) void {
             sys.esp_deregister_freertos_idle_hook_for_cpu(cb, cpu_id);

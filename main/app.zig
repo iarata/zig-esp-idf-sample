@@ -1,3 +1,44 @@
+//! # Application Entry Point (`main/app.zig`)
+//!
+//! **What:** The default Zig application entry file for this ESP32-S3 project.
+//! Exports the `app_main` symbol that ESP-IDF's startup code calls after
+//! FreeRTOS and peripheral initialisation are complete.
+//!
+//! **What it does:**
+//!   1. Initialises the integrated AMOLED display (and optionally touch) via
+//!      the `display_touch` library.
+//!   2. Acquires the LVGL lock and mounts a simple UI (a centred label with
+//!      the text "Runa") using the `app_ui` library.
+//!   3. Enters an infinite loop that sleeps 1 s per iteration (placeholder
+//!      for periodic update logic).
+//!
+//! **How:**
+//!   - `comptime { @export(&main, .{ .name = "app_main" }); }` makes the
+//!     function visible to the C linker as `app_main`.
+//!   - `display_touch.init(.{})` handles the full bring-up sequence: PMU
+//!     rails → SPI bus → SH8601 display → FT5x06 touch (with retry/fallback).
+//!   - The LVGL lock/unlock bracket ensures thread safety with the LVGL
+//!     timer task.
+//!   - `pub const panic` and `pub const std_options` wire the ESP-IDF panic
+//!     handler and logger so that `@panic`, `std.log.info`, etc. output to
+//!     the UART console.
+//!
+//! **When to modify:** Replace the UI mount and loop body with your own
+//! application logic.  Or use a different example file via
+//! `zig build -Dapp_source=main/examples/wifi-station.zig`.
+//!
+//! **Example — minimal app_main:**
+//! ```zig
+//! const idf = @import("esp_idf");
+//! comptime { @export(&main, .{ .name = "app_main" }); }
+//! fn main() callconv(.c) void {
+//!     idf.rtos.Task.delayMs(1000);
+//!     std.log.info("Hello from Zig on ESP32-S3!", .{});
+//! }
+//! pub const panic = idf.esp_panic.panic;
+//! pub const std_options: std.Options = .{ .logFn = idf.log.espLogFn };
+//! ```
+
 const std = @import("std");
 const builtin = @import("builtin");
 const idf = @import("esp_idf");
@@ -11,8 +52,10 @@ comptime {
     @export(&main, .{ .name = "app_main" });
 }
 
+/// Keeps app-level logic focused on UI state by delegating all board bring-up
+/// to `display_touch`, then running a simple locked LVGL update loop.
 fn main() callconv(.c) void {
-    // One-call board bring-up (LVGL port + SH8601 display + optional FT5x06 touch).
+    // Centralizing bring-up avoids duplicated pin/timing assumptions in apps.
     const integrated = display_touch.init(.{
         .touch = .{
             .required = false,
@@ -27,28 +70,17 @@ fn main() callconv(.c) void {
     }
 
     if (!lvgl.lock(0)) @panic("lvgl.lock");
-    var root = blk: {
+    const root = blk: {
         defer lvgl.unlock();
         break :blk ui.mount(.{
-            .text = "Zig + LVGL\nApp loaded",
+            .text = "Runa",
+            .runa_style = true,
         }) orelse @panic("ui.mount");
     };
 
-    const touch_state = if (integrated.hasTouch()) "touch ready" else "display only";
-    var uptime_sec: u32 = 0;
-    while (true) : (uptime_sec += 1) {
+    _ = root;
+    while (true) {
         idf.rtos.Task.delayMs(1000);
-
-        if (!lvgl.lock(100)) continue;
-        defer lvgl.unlock();
-
-        var msg_buf: [96]u8 = undefined;
-        const msg = std.fmt.bufPrintZ(
-            &msg_buf,
-            "Zig + LVGL\n{s}\nUptime: {d}s",
-            .{ touch_state, uptime_sec },
-        ) catch continue;
-        root.setText(msg.ptr);
     }
 }
 

@@ -1,3 +1,33 @@
+//! # ESP-DSP Math Demo (`dsp-math.zig`)
+//!
+//! **What:** A standalone example that exercises the ESP-DSP library from Zig.
+//! Generates a sine tone, applies a Hann window, runs a radix-2 FFT, and prints
+//! the resulting power spectrum.
+//!
+//! **What it does:**
+//!   1. Allocates three buffers via `VPortAllocator`: input signal, window, and
+//!      complex output (2×N samples for real+imag interleaving).
+//!   2. Generates a 1024-sample tone at normalised frequency 0.2.
+//!   3. **Method 1** — multiplies tone × window using a plain Zig loop.
+//!   4. **Method 2** — multiplies using `dsps_mul_f32_ae32` / `dsps_mulc_f32_ae32`
+//!      (hardware-accelerated on Xtensa).
+//!   5. Both methods compute the FFT, bit-reverse, convert complex→real, compute
+//!      10·log10 power spectrum, and render an ASCII chart via
+//!      `dsp.Utils.viewSignalF32`.
+//!
+//! **How:** Build and flash with:
+//! ```sh
+//! zig build -Dapp_source=main/examples/dsp-math.zig
+//! idf.py flash monitor
+//! ```
+//!
+//! **When to use:** To validate the ESP-DSP component is linked correctly,
+//! benchmark FFT performance, or as a starting point for spectral-analysis
+//! applications.
+//!
+//! **What it takes:** The `esp-dsp` managed component must be enabled in
+//! `idf_component.yml`.  No external hardware required.
+
 const std = @import("std");
 const idf = @import("esp_idf");
 const dsp = idf.dsp;
@@ -14,6 +44,8 @@ const TONE_AMPLITUDE: f32 = 1.0;
 const TONE_FREQUENCY: f32 = 0.2; // Normalized frequency (0.0 to 0.5)
 
 // Process and display FFT results
+/// Keeps FFT setup/teardown in one place so both input-preparation paths can
+/// be compared without duplicating spectral post-processing logic.
 fn processAndShow(allocator: std.mem.Allocator, data: []f32, length: u32) !void {
     // Perform FFT
     const fft_table = try allocator.alloc(f32, length);
@@ -49,6 +81,8 @@ fn processAndShow(allocator: std.mem.Allocator, data: []f32, length: u32) !void 
     dsp.Utils.viewSignalF32(data[0..(length / 2)], 64, 10, -120.0, 40.0);
 }
 
+/// Compares hand-written math with optimized DSP helpers to validate that both
+/// produce equivalent spectra before relying on the accelerated path.
 fn main() callconv(.c) void {
     log.info("*** ESP-DSP Basic Math Example (Zig) ***", .{});
 

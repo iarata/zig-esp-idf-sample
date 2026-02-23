@@ -1,3 +1,28 @@
+//! # Minimal LVGL Example (`lvgl-basic.zig`)
+//!
+//! **What:** The smallest possible LVGL program — initialises the LVGL port,
+//! creates a label widget, and enters an idle loop.  No display or touch
+//! hardware is configured, so the label exists only in LVGL’s internal state.
+//!
+//! **What it does:**
+//!   1. Calls `lvgl.initPortDefault()` to start the LVGL timer task and
+//!      allocate the display buffer.
+//!   2. Acquires the LVGL mutex, gets the active screen, and creates a label
+//!      with the text “Hello from Zig + LVGL”.
+//!   3. Sleeps forever in a 1 s loop.
+//!
+//! **How:** Build and flash with:
+//! ```sh
+//! zig build -Dapp_source=main/examples/lvgl-basic.zig
+//! idf.py flash monitor
+//! ```
+//!
+//! **When to use:** To verify the LVGL port compiles and links before adding
+//! a display driver, or as a minimal template for headless LVGL unit tests.
+//!
+//! **What it takes:** No external hardware.  Only `esp_lvgl_port` and LVGL
+//! components.
+
 const std = @import("std");
 const builtin = @import("builtin");
 const idf = @import("esp_idf");
@@ -9,6 +34,8 @@ comptime {
     @export(&main, .{ .name = "app_main" });
 }
 
+/// Keeps startup failures explicit because LVGL misuse after partial init can
+/// fail later in less actionable ways.
 fn check(result: anyerror!void, comptime context: []const u8) void {
     result catch |check_err| {
         log.err("{s} failed: {s}", .{ context, @errorName(check_err) });
@@ -16,6 +43,8 @@ fn check(result: anyerror!void, comptime context: []const u8) void {
     };
 }
 
+/// Demonstrates the minimum lock discipline required for LVGL object mutation
+/// from application code.
 fn main() callconv(.c) void {
     check(lvgl.initPortDefault(), "lvgl.initPortDefault");
 

@@ -129,7 +129,9 @@ if(WIFI_SUPPORTED)
     string(REGEX REPLACE "pub const wifi_ap_config_t[^;]*;" "" FILE_CONTENT "${FILE_CONTENT}")
 endif()
 
-# Remove portTICK_PERIOD_MS (will be replaced with custom version)
+# Remove portTICK_PERIOD_MS (will be replaced with custom version).
+# Also remove legacy comments previously inserted by this patch to keep output idempotent.
+string(REGEX REPLACE "[ \t]*// Convert ticks-per-second to milliseconds\\." "" FILE_CONTENT "${FILE_CONTENT}")
 string(REGEX REPLACE "pub const portTICK_PERIOD_MS[^;]*;" "" FILE_CONTENT "${FILE_CONTENT}")
 
 # Remove I2C and touch config structs that contain demoted opaque bitfields

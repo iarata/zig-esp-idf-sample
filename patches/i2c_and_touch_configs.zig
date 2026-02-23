@@ -1,10 +1,23 @@
+//! # I2C Master & LCD Touch Configuration Patch
+//!
+//! Restores explicit flags and field layouts for `i2c_master_bus_config_t`,
+//! `i2c_device_config_t`, and `esp_lcd_touch_config_t` where the C-to-Zig
+//! translation produced opaque types due to bitfield structs. Consumed by
+//! `cmake/patch.cmake` when rebuilding `imports/idf-sys.zig`.
+
 // BEGIN_PATCH:i2c_and_touch_configs
+// Patch snippet for I2C master and LCD touch configuration structs.
+// Restores explicit flags and field layouts where translation produced opaque types.
+// Consumed by cmake/patch.cmake when rebuilding imports/idf-sys.zig.
+
+/// Packed flag bits for `i2c_master_bus_config_t` (internal pull-up enable and power-down allow).
 pub const i2c_master_bus_config_flags_t = packed struct(u32) {
     enable_internal_pullup: u1 = 0,
     allow_pd: u1 = 0,
     reserved: u30 = 0,
 };
 
+/// I2C master bus configuration: port, GPIO pins, clock source, glitch filter, and queue depth.
 pub const i2c_master_bus_config_t = extern struct {
     i2c_port: i2c_port_num_t = 0,
     sda_io_num: gpio_num_t = @import("std").mem.zeroes(gpio_num_t),
@@ -18,11 +31,13 @@ pub const i2c_master_bus_config_t = extern struct {
     pub const bus = __root.i2c_new_master_bus;
 };
 
+/// Packed flag bits for `i2c_device_config_t` (ACK check disable).
 pub const i2c_device_config_flags_t = packed struct(u32) {
     disable_ack_check: u1 = 0,
     reserved: u31 = 0,
 };
 
+/// I2C device configuration: address, speed, SCL wait timeout, and flags.
 pub const i2c_device_config_t = extern struct {
     dev_addr_length: i2c_addr_bit_len_t = @import("std").mem.zeroes(i2c_addr_bit_len_t),
     device_address: u16 = 0,
@@ -31,12 +46,14 @@ pub const i2c_device_config_t = extern struct {
     flags: i2c_device_config_flags_t = .{},
 };
 
+/// Active-low/high levels for the LCD touch controller reset and interrupt pins.
 pub const esp_lcd_touch_levels_t = packed struct(u32) {
     reset: u1 = 0,
     interrupt: u1 = 0,
     reserved: u30 = 0,
 };
 
+/// Coordinate transformation flags: swap X/Y, mirror X, mirror Y.
 pub const esp_lcd_touch_flags_t = packed struct(u32) {
     swap_xy: u1 = 0,
     mirror_x: u1 = 0,
@@ -44,6 +61,8 @@ pub const esp_lcd_touch_flags_t = packed struct(u32) {
     reserved: u29 = 0,
 };
 
+/// LCD touch controller configuration: resolution, GPIO pins, coordinate processing,
+/// and interrupt callback.
 pub const esp_lcd_touch_config_t = extern struct {
     x_max: u16 = 0,
     y_max: u16 = 0,
